@@ -129,6 +129,13 @@ class TFLayoutLMForMaskedLM(metaclass=DummyObject):
         requires_backends(self, ["tf"])
 
 
+class TFLayoutLMForQuestionAnswering(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
 class TFLayoutLMForSequenceClassification(metaclass=DummyObject):
     _backends = ["tf"]
 
@@ -279,6 +286,9 @@ TF_MODEL_FOR_PRETRAINING_MAPPING = None
 TF_MODEL_FOR_QUESTION_ANSWERING_MAPPING = None
 
 
+TF_MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING = None
+
+
 TF_MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING = None
 
 
@@ -353,6 +363,13 @@ class TFAutoModelForPreTraining(metaclass=DummyObject):
 
 
 class TFAutoModelForQuestionAnswering(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFAutoModelForSemanticSegmentation(metaclass=DummyObject):
     _backends = ["tf"]
 
     def __init__(self, *args, **kwargs):
@@ -1306,6 +1323,44 @@ class TFHubertPreTrainedModel(metaclass=DummyObject):
         requires_backends(self, ["tf"])
 
 
+TF_LAYOUTLMV3_PRETRAINED_MODEL_ARCHIVE_LIST = None
+
+
+class TFLayoutLMv3ForQuestionAnswering(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFLayoutLMv3ForSequenceClassification(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFLayoutLMv3ForTokenClassification(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFLayoutLMv3Model(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFLayoutLMv3PreTrainedModel(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
 class TFLEDForConditionalGeneration(metaclass=DummyObject):
     _backends = ["tf"]
 
@@ -1469,6 +1524,9 @@ class TFMBartPreTrainedModel(metaclass=DummyObject):
 TF_MOBILEBERT_PRETRAINED_MODEL_ARCHIVE_LIST = None
 
 
+TF_MOBILEVIT_PRETRAINED_MODEL_ARCHIVE_LIST = None
+
+
 class TFMobileBertForMaskedLM(metaclass=DummyObject):
     _backends = ["tf"]
 
@@ -1533,6 +1591,34 @@ class TFMobileBertModel(metaclass=DummyObject):
 
 
 class TFMobileBertPreTrainedModel(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFMobileViTForImageClassification(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFMobileViTForSemanticSegmentation(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFMobileViTModel(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFMobileViTPreTrainedModel(metaclass=DummyObject):
     _backends = ["tf"]
 
     def __init__(self, *args, **kwargs):
@@ -2254,6 +2340,30 @@ class TFWav2Vec2Model(metaclass=DummyObject):
 
 
 class TFWav2Vec2PreTrainedModel(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+TF_XGLM_PRETRAINED_MODEL_ARCHIVE_LIST = None
+
+
+class TFXGLMForCausalLM(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFXGLMModel(metaclass=DummyObject):
+    _backends = ["tf"]
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ["tf"])
+
+
+class TFXGLMPreTrainedModel(metaclass=DummyObject):
     _backends = ["tf"]
 
     def __init__(self, *args, **kwargs):
