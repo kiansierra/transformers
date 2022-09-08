@@ -119,6 +119,7 @@ _import_structure = {
     ],
     "models": [],
     # Models
+    "models.fan": ["FAN_PRETRAINED_CONFIG_ARCHIVE_MAP", "FANConfig", "FANTokenizer"],
     "models.albert": ["ALBERT_PRETRAINED_CONFIG_ARCHIVE_MAP", "AlbertConfig"],
     "models.auto": [
         "ALL_PRETRAINED_CONFIG_ARCHIVE_MAP",
@@ -520,6 +521,7 @@ except OptionalDependencyNotAvailable:
     ]
 else:
     # Fast tokenizers structure
+    _import_structure["models.fan"].append("FANTokenizerFast")
     _import_structure["models.albert"].append("AlbertTokenizerFast")
     _import_structure["models.bart"].append("BartTokenizerFast")
     _import_structure["models.barthez"].append("BarthezTokenizerFast")
@@ -769,6 +771,22 @@ else:
     _import_structure["modeling_utils"] = ["PreTrainedModel"]
 
     # PyTorch models structure
+
+    _import_structure["models.fan"].extend(
+        [
+            "FAN_PRETRAINED_MODEL_ARCHIVE_LIST",
+            "FANForMaskedLM",
+            "FANForCausalLM",
+            "FANForMultipleChoice",
+            "FANForQuestionAnswering",
+            "FANForSequenceClassification",
+            "FANForTokenClassification",
+            "FANLayer",
+            "FANModel",
+            "FANPreTrainedModel",
+            "load_tf_weights_in_fan",
+        ]
+    )
     _import_structure["models.albert"].extend(
         [
             "ALBERT_PRETRAINED_MODEL_ARCHIVE_LIST",
@@ -2973,6 +2991,7 @@ if TYPE_CHECKING:
         load_tf2_weights_in_pytorch_model,
     )
     from .models.albert import ALBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, AlbertConfig
+    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANTokenizer
     from .models.auto import (
         ALL_PRETRAINED_CONFIG_ARCHIVE_MAP,
         CONFIG_MAPPING,
@@ -3334,6 +3353,7 @@ if TYPE_CHECKING:
         from .utils.dummy_tokenizers_objects import *
     else:
         # Fast tokenizers imports
+        from .models.fan import FANTokenizerFast
         from .models.albert import AlbertTokenizerFast
         from .models.bart import BartTokenizerFast
         from .models.barthez import BarthezTokenizerFast
@@ -3537,6 +3557,20 @@ if TYPE_CHECKING:
         from .modeling_utils import PreTrainedModel
 
         # PyTorch model imports
+
+        from .models.fan import (
+            FAN_PRETRAINED_MODEL_ARCHIVE_LIST,
+            FANForMaskedLM,
+            FANForCausalLM,
+            FANForMultipleChoice,
+            FANForQuestionAnswering,
+            FANForSequenceClassification,
+            FANForTokenClassification,
+            FANLayer,
+            FANModel,
+            FANPreTrainedModel,
+            load_tf_weights_in_fan,
+        )
         from .models.albert import (
             ALBERT_PRETRAINED_MODEL_ARCHIVE_LIST,
             AlbertForMaskedLM,
