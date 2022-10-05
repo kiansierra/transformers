@@ -119,7 +119,7 @@ _import_structure = {
     ],
     "models": [],
     # Models
-    "models.fan": ["FAN_PRETRAINED_CONFIG_ARCHIVE_MAP", "FANConfig", "FANTokenizer"],
+    "models.fan": ["FAN_PRETRAINED_CONFIG_ARCHIVE_MAP", "FANConfig", "FANFeatureExtractor"],
     "models.albert": ["ALBERT_PRETRAINED_CONFIG_ARCHIVE_MAP", "AlbertConfig"],
     "models.auto": [
         "ALL_PRETRAINED_CONFIG_ARCHIVE_MAP",
@@ -521,7 +521,6 @@ except OptionalDependencyNotAvailable:
     ]
 else:
     # Fast tokenizers structure
-    _import_structure["models.fan"].append("FANTokenizerFast")
     _import_structure["models.albert"].append("AlbertTokenizerFast")
     _import_structure["models.bart"].append("BartTokenizerFast")
     _import_structure["models.barthez"].append("BarthezTokenizerFast")
@@ -649,6 +648,7 @@ else:
     _import_structure["models.detr"].append("DetrFeatureExtractor")
     _import_structure["models.donut"].append("DonutFeatureExtractor")
     _import_structure["models.dpt"].append("DPTFeatureExtractor")
+    _import_structure["models.fan"].extend(["FANFeatureExtractor"])
     _import_structure["models.flava"].extend(["FlavaFeatureExtractor", "FlavaProcessor"])
     _import_structure["models.glpn"].append("GLPNFeatureExtractor")
     _import_structure["models.imagegpt"].append("ImageGPTFeatureExtractor")
@@ -775,12 +775,8 @@ else:
     _import_structure["models.fan"].extend(
         [
             "FAN_PRETRAINED_MODEL_ARCHIVE_LIST",
-            "FANForMaskedLM",
-            "FANForCausalLM",
-            "FANForMultipleChoice",
-            "FANForQuestionAnswering",
-            "FANForSequenceClassification",
-            "FANForTokenClassification",
+            "FANForImageClassification",
+            "FANForSemanticSegmentation",
             "FANLayer",
             "FANModel",
             "FANPreTrainedModel",
@@ -2991,7 +2987,6 @@ if TYPE_CHECKING:
         load_tf2_weights_in_pytorch_model,
     )
     from .models.albert import ALBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, AlbertConfig
-    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANTokenizer
     from .models.auto import (
         ALL_PRETRAINED_CONFIG_ARCHIVE_MAP,
         CONFIG_MAPPING,
@@ -3068,6 +3063,7 @@ if TYPE_CHECKING:
     from .models.dpt import DPT_PRETRAINED_CONFIG_ARCHIVE_MAP, DPTConfig
     from .models.electra import ELECTRA_PRETRAINED_CONFIG_ARCHIVE_MAP, ElectraConfig, ElectraTokenizer
     from .models.encoder_decoder import EncoderDecoderConfig
+    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANTokenizer
     from .models.flaubert import FLAUBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, FlaubertConfig, FlaubertTokenizer
     from .models.flava import (
         FLAVA_PRETRAINED_CONFIG_ARCHIVE_MAP,
@@ -3353,7 +3349,6 @@ if TYPE_CHECKING:
         from .utils.dummy_tokenizers_objects import *
     else:
         # Fast tokenizers imports
-        from .models.fan import FANTokenizerFast
         from .models.albert import AlbertTokenizerFast
         from .models.bart import BartTokenizerFast
         from .models.barthez import BarthezTokenizerFast
@@ -3372,6 +3367,7 @@ if TYPE_CHECKING:
         from .models.distilbert import DistilBertTokenizerFast
         from .models.dpr import DPRContextEncoderTokenizerFast, DPRQuestionEncoderTokenizerFast, DPRReaderTokenizerFast
         from .models.electra import ElectraTokenizerFast
+        from .models.fan import FANTokenizerFast
         from .models.fnet import FNetTokenizerFast
         from .models.funnel import FunnelTokenizerFast
         from .models.gpt2 import GPT2TokenizerFast
@@ -3555,22 +3551,6 @@ if TYPE_CHECKING:
         )
         from .generation_utils import top_k_top_p_filtering
         from .modeling_utils import PreTrainedModel
-
-        # PyTorch model imports
-
-        from .models.fan import (
-            FAN_PRETRAINED_MODEL_ARCHIVE_LIST,
-            FANForMaskedLM,
-            FANForCausalLM,
-            FANForMultipleChoice,
-            FANForQuestionAnswering,
-            FANForSequenceClassification,
-            FANForTokenClassification,
-            FANLayer,
-            FANModel,
-            FANPreTrainedModel,
-            load_tf_weights_in_fan,
-        )
         from .models.albert import (
             ALBERT_PRETRAINED_MODEL_ARCHIVE_LIST,
             AlbertForMaskedLM,
@@ -3889,6 +3869,21 @@ if TYPE_CHECKING:
             load_tf_weights_in_electra,
         )
         from .models.encoder_decoder import EncoderDecoderModel
+
+        # PyTorch model imports
+        from .models.fan import (
+            FAN_PRETRAINED_MODEL_ARCHIVE_LIST,
+            FANForCausalLM,
+            FANForMaskedLM,
+            FANForMultipleChoice,
+            FANForQuestionAnswering,
+            FANForSequenceClassification,
+            FANForTokenClassification,
+            FANLayer,
+            FANModel,
+            FANPreTrainedModel,
+            load_tf_weights_in_fan,
+        )
         from .models.flaubert import (
             FLAUBERT_PRETRAINED_MODEL_ARCHIVE_LIST,
             FlaubertForMultipleChoice,
