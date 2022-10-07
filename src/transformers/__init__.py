@@ -822,7 +822,6 @@ else:
 
     # PyTorch models structure
 
-
     _import_structure["models.fan"].extend(
         [
             "FAN_PRETRAINED_MODEL_ARCHIVE_LIST",
@@ -832,14 +831,14 @@ else:
             "FANModel",
             "FANPreTrainedModel",
             "load_tf_weights_in_fan",
-
+        ]
+    )
     _import_structure["models.time_series_transformer"].extend(
         [
             "TIME_SERIES_TRANSFORMER_PRETRAINED_MODEL_ARCHIVE_LIST",
             "TimeSeriesTransformerForPrediction",
             "TimeSeriesTransformerModel",
             "TimeSeriesTransformerPreTrainedModel",
-
         ]
     )
     _import_structure["models.albert"].extend(
@@ -3197,9 +3196,9 @@ if TYPE_CHECKING:
     from .models.dpt import DPT_PRETRAINED_CONFIG_ARCHIVE_MAP, DPTConfig
     from .models.electra import ELECTRA_PRETRAINED_CONFIG_ARCHIVE_MAP, ElectraConfig, ElectraTokenizer
     from .models.encoder_decoder import EncoderDecoderConfig
-    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANTokenizer
     from .models.ernie import ERNIE_PRETRAINED_CONFIG_ARCHIVE_MAP, ErnieConfig
     from .models.esm import ESM_PRETRAINED_CONFIG_ARCHIVE_MAP, EsmConfig, EsmTokenizer
+    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANTokenizer
     from .models.flaubert import FLAUBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, FlaubertConfig, FlaubertTokenizer
     from .models.flava import (
         FLAVA_PRETRAINED_CONFIG_ARCHIVE_MAP,
@@ -4044,22 +4043,6 @@ if TYPE_CHECKING:
             load_tf_weights_in_electra,
         )
         from .models.encoder_decoder import EncoderDecoderModel
-
-
-        # PyTorch model imports
-        from .models.fan import (
-            FAN_PRETRAINED_MODEL_ARCHIVE_LIST,
-            FANForCausalLM,
-            FANForMaskedLM,
-            FANForMultipleChoice,
-            FANForQuestionAnswering,
-            FANForSequenceClassification,
-            FANForTokenClassification,
-            FANLayer,
-            FANModel,
-            FANPreTrainedModel,
-            load_tf_weights_in_fan,
-
         from .models.ernie import (
             ERNIE_PRETRAINED_MODEL_ARCHIVE_LIST,
             ErnieForCausalLM,
@@ -4080,7 +4063,15 @@ if TYPE_CHECKING:
             EsmForTokenClassification,
             EsmModel,
             EsmPreTrainedModel,
+        )
 
+        # PyTorch model imports
+        from .models.fan import (
+            FAN_PRETRAINED_MODEL_ARCHIVE_LIST,
+            FANForImageClassification,
+            FANForSemanticSegmentation,
+            FANModel,
+            FANPreTrainedModel,
         )
         from .models.flaubert import (
             FLAUBERT_PRETRAINED_MODEL_ARCHIVE_LIST,
