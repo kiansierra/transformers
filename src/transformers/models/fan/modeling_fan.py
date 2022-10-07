@@ -19,6 +19,7 @@ import math
 import os
 from collections import OrderedDict
 from functools import partial
+from turtle import forward
 from typing import Optional, Tuple, Union
 
 import torch
@@ -301,10 +302,12 @@ class ConvPatchEmbed(nn.Module):
         else:
             raise ("For convolutional projection, patch size has to be in [8, 16]")
 
-    def forward(self, x):
+    def forward(self, x, return_feat=False):
         x = self.proj(x)
         Hp, Wp = x.shape[2], x.shape[3]
         x = x.flatten(2).transpose(1, 2)  # (B, N, C)
+        if return_feat:
+            return x, (Hp, Wp), None
         return x, (Hp, Wp)
 
 
@@ -743,24 +746,24 @@ class FANBlock(nn.Module):
         self.weight2 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
 
         self.downsample = downsample
-        self.H = None
-        self.W = None
+        # self.H = None
+        # self.W = None
 
-    def forward(self, x, attn=None, return_attention=False):
-        H, W = self.H, self.W
+    def forward(self, x, Hp, Wp, attn=None, return_attention=False):
+        # H, W = self.H, self.W
 
-        x_new, attn_s = self.attn(self.norm1(x), H, W)
+        x_new, attn_s = self.attn(self.norm1(x), Hp, Wp)
         x = x + self.drop_path(self.weight1 * x_new)
 
-        x_new, attn_c = self.mlp(self.norm2(x), H, W, atten=attn)
+        x_new, attn_c = self.mlp(self.norm2(x), Hp, Wp, atten=attn)
         x = x + self.drop_path(self.weight2 * x_new)
         if return_attention:
             return x, attn_s
 
         if self.downsample is not None:
-            x, H, W = self.downsample(x, H, W)
-        self.H, self.W = H, W
-        return x
+            x, Hp, Wp = self.downsample(x, Hp, Wp)
+        # self.H, self.W = H, W
+        return x, Hp, Wp
 
 
 class OverlapPatchEmbed(nn.Module):
@@ -1192,13 +1195,15 @@ class FANEmbeddings(FANPreTrainedModel):
                 embed_dim=config.embed_dim,
                 act_layer=act_layer,
             )
-        else:
+        elif config.backbone == "hybrid":
+            backbone = ConvNeXt(depths=self.config.depths, dims=self.config.dims, use_head=False)
             self.patch_embed = HybridEmbed(
-                backbone=config.backbone, patch_size=config.hybrid_patch_size, embed_dim=config.embed_dim
+                backbone=backbone, patch_size=config.hybrid_patch_size, embed_dim=config.embed_dim
             )
-
+        else:
+            raise ValueError(f"{config.backbone} has to be either hybrid or None")
         if config.use_pos_embed:
-            self.pos_embed = PositionalEncodingFourier(dim=config.embed_dim)
+            self.pos_embed = PositionalEncodingFourier(dim=config.embed_dim, rounding_mode=self.config.rounding_mode)
         self.pos_drop = nn.Dropout(p=config.drop_rate)
 
     def forward(
@@ -1210,17 +1215,77 @@ class FANEmbeddings(FANPreTrainedModel):
         output_hidden_states=None,
         return_dict=None,
     ):
-        B = pixel_values.shape[0]
-        inputs_embeds, (Hp, Wp) = self.patch_embed(pixel_values)
-        hidden_states = inputs_embeds
+        batch_size = pixel_values.shape[0]
+        encoder_states = () if output_hidden_states else None
+        all_attentions = () if output_attentions else None
+        if isinstance(self.patch_embed, HybridEmbed):
+            hidden_states, (Hp, Wp), out_list = self.patch_embed(pixel_values, return_feat=True)
+            if output_hidden_states:
+                encoder_states = encoder_states + tuple(out_list)
+        else:
+            hidden_states, (Hp, Wp) = self.patch_embed(pixel_values)
 
-        if self.use_pos_embed:
-            pos_encoding = self.pos_embed(B, Hp, Wp).reshape(B, -1, hidden_states.shape[1]).permute(0, 2, 1)
+        if self.config.use_pos_embed:
+            pos_encoding = (
+                self.pos_embed(batch_size, Hp, Wp).reshape(batch_size, -1, hidden_states.shape[1]).permute(0, 2, 1)
+            )
             hidden_states = hidden_states + pos_encoding
 
         hidden_states = self.pos_drop(hidden_states)
-        H, W = Hp, Wp
-        return hidden_states
+        if output_hidden_states:
+            return hidden_states, (Hp, Wp), encoder_states
+
+        return hidden_states, (Hp, Wp), encoder_states
+
+
+class FANEncoderLayer(FANPreTrainedModel):
+    def __init__(self, config: FANConfig, index=0):
+        super().__init__(config)
+
+        img_size = to_2tuple(config.img_size)
+        self.use_checkpoint = config.use_checkpoint
+        assert (img_size[0] % config.patch_size == 0) and (
+            img_size[0] % config.patch_size == 0
+        ), "`patch_size` should divide image dimensions evenly"
+
+        num_heads = [config.num_heads] * config.depth if not isinstance(config.num_heads, list) else config.num_heads
+        channel_dims = [config.embed_dim] * config.depth if config.channel_dims is None else config.channel_dims
+        norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
+        act_layer = config.act_layer or nn.GELU
+
+        if config.se_mlp:
+            build_block = FANBlock_SE
+        else:
+            build_block = FANBlock
+        if index < config.depth - 1 and channel_dims[index] != channel_dims[index + 1]:
+            downsample = OverlapPatchEmbed(
+                img_size=img_size,
+                patch_size=3,
+                stride=2,
+                in_chans=channel_dims[index],
+                embed_dim=channel_dims[index + 1],
+            )
+        else:
+            downsample = None
+        self.block = build_block(
+            dim=channel_dims[index],
+            num_heads=num_heads[index],
+            mlp_ratio=config.mlp_ratio,
+            qkv_bias=config.qkv_bias,
+            drop=config.drop_rate,
+            sr_ratio=config.sr_ratio[index],
+            attn_drop=config.attn_drop_rate,
+            drop_path=config.drop_path_rate,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+            eta=config.eta,
+            downsample=downsample,
+            c_head_num=config.c_head_num[index] if config.c_head_num is not None else None,
+        )
+
+    def forward(self, hidden_state, Hp, Wp):
+        hidden_state, Hp, Wp = self.block(hidden_state, Hp, Wp)
+        return hidden_state, Hp, Wp
 
 
 # TODO: Update Docstring
@@ -1252,61 +1317,9 @@ class FANEncoder(FANPreTrainedModel):
         channel_dims = [config.embed_dim] * config.depth if config.channel_dims is None else config.channel_dims
         norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
         act_layer = config.act_layer or nn.GELU
-
-        if config.backbone == None:
-            self.patch_embed = ConvPatchEmbed(
-                img_size=img_size,
-                patch_size=config.patch_size,
-                in_chans=config.in_chans,
-                embed_dim=config.embed_dim,
-                act_layer=act_layer,
-            )
-        elif config.backbone == "hybrid":
-            backbone = ConvNeXt(depths=self.config.depths, dims=self.config.dims, use_head=False)
-            self.patch_embed = HybridEmbed(
-                backbone=backbone, patch_size=config.hybrid_patch_size, embed_dim=config.embed_dim
-            )
-        else:
-            raise ValueError(f"{config.backbone} has to be either hybrid or None")
-        if config.use_pos_embed:
-            self.pos_embed = PositionalEncodingFourier(dim=config.embed_dim, rounding_mode=self.config.rounding_mode)
-        self.pos_drop = nn.Dropout(p=config.drop_rate)
-
-        if config.se_mlp:
-            build_block = FANBlock_SE
-        else:
-            build_block = FANBlock
-        self.blocks = nn.ModuleList([])
-        for i in range(config.depth):
-            if i < config.depth - 1 and channel_dims[i] != channel_dims[i + 1]:
-                downsample = OverlapPatchEmbed(
-                    img_size=img_size,
-                    patch_size=3,
-                    stride=2,
-                    in_chans=channel_dims[i],
-                    embed_dim=channel_dims[i + 1],
-                )
-            else:
-                downsample = None
-            self.blocks.append(
-                build_block(
-                    dim=channel_dims[i],
-                    num_heads=num_heads[i],
-                    mlp_ratio=config.mlp_ratio,
-                    qkv_bias=config.qkv_bias,
-                    drop=config.drop_rate,
-                    sr_ratio=config.sr_ratio[i],
-                    attn_drop=config.attn_drop_rate,
-                    drop_path=config.drop_path_rate,
-                    act_layer=act_layer,
-                    norm_layer=norm_layer,
-                    eta=config.eta,
-                    downsample=downsample,
-                    c_head_num=config.c_head_num[i] if config.c_head_num is not None else None,
-                )
-            )
-        self.num_features = self.embed_dim = channel_dims[i]
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[i]))
+        self.blocks = nn.ModuleList([FANEncoderLayer(config, i) for i in range(config.depth)])
+        self.num_features = self.embed_dim = channel_dims[-1]
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
         self.cls_attn_blocks = nn.ModuleList(
             [
                 ClassAttentionBlock(
@@ -1324,7 +1337,7 @@ class FANEncoder(FANPreTrainedModel):
                 for _ in range(config.cls_attn_layers)
             ]
         )
-        if isinstance(self.patch_embed, HybridEmbed) and self.config.feat_downsample:
+        if self.config.backbone == "hybrid" and self.config.feat_downsample:
             self.learnable_downsample = nn.Conv2d(
                 in_channels=self.config.embed_dim,
                 out_channels=768,
@@ -1342,69 +1355,62 @@ class FANEncoder(FANPreTrainedModel):
     def forward(
         self,
         inputs_embeds=None,
+        Hp=None,
+        Wp=None,
+        hidden_states=None,
         attention_mask=None,
         position_embeddings=None,
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
     ):
-        Bs = inputs_embeds.shape[0]
+        batch_size = inputs_embeds.shape[0]
         out_index = [4, 7, 11]
-        outs = []
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
-        if isinstance(self.patch_embed, HybridEmbed):
-            hidden_states, (Hp, Wp), out_list = self.patch_embed(inputs_embeds, return_feat=True)
-            if output_hidden_states:
-                encoder_states = encoder_states + tuple(out_list)
-                out_index = [self.config.out_index]
-        else:
-            hidden_states, (Hp, Wp) = self.patch_embed(inputs_embeds)
+        is_backbone_hybrid = self.config.backbone == "hybrid"
 
-        if self.config.use_pos_embed:
-            pos_encoding = self.pos_embed(Bs, Hp, Wp).reshape(Bs, -1, hidden_states.shape[1]).permute(0, 2, 1)
-            hidden_states = hidden_states + pos_encoding
+        if output_hidden_states and is_backbone_hybrid:
+            encoder_states = encoder_states + hidden_states
+            out_index = [self.config.out_index]
 
-        hidden_states = self.pos_drop(hidden_states)
-
+        current_hidden_state = inputs_embeds
         for idx, blk in enumerate(self.blocks):
-            blk.H, blk.W = Hp, Wp
+            # blk.H, blk.W = Hp, Wp
 
             if self.use_checkpoint:
-                hidden_states = torch.utils.checkpoint.checkpoint(
-                    blk, hidden_states
-                )  # TODO: Check Forward pass for SE with checkpoints
-            elif isinstance(blk, FANBlock_SE):
-                (hidden_states, Hp, Wp) = blk(hidden_states, Hp, Wp)
+                current_hidden_state, Hp, Wp = torch.utils.checkpoint.checkpoint(blk, current_hidden_state, Hp, Wp)
             else:
-                hidden_states = blk(hidden_states)
+                (current_hidden_state, Hp, Wp) = blk(current_hidden_state, Hp, Wp)
 
             if idx in out_index and output_hidden_states:
-                hidden_state_reshaped = hidden_states.reshape(Bs, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
+                hidden_state_reshaped = (
+                    current_hidden_state.reshape(batch_size, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
+                )
                 encoder_states = encoder_states + (hidden_state_reshaped,)
-            Hp, Wp = blk.H, blk.W
+            # Hp, Wp = blk.H, blk.W
 
-        cls_tokens = self.cls_token.expand(Bs, -1, -1)
-        hidden_states = torch.cat((cls_tokens, hidden_states), dim=1)
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+        current_hidden_state = torch.cat((cls_tokens, current_hidden_state), dim=1)
 
         for blk in self.cls_attn_blocks:
-            hidden_states = blk(hidden_states)
+            current_hidden_state = blk(current_hidden_state)
 
         if output_hidden_states:
-            if isinstance(self.patch_embed, HybridEmbed) and self.config.feat_downsample:
-                tmp = hidden_states[:, 1:, :].reshape(Bs, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
+            if is_backbone_hybrid and self.config.feat_downsample:
+                tmp = current_hidden_state[:, 1:, :].reshape(batch_size, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
                 tmp = self.learnable_downsample(tmp)
                 encoder_states + (tmp,)
             else:
                 hidden_state_reshaped = (
-                    hidden_states[:, 1:, :].reshape(Bs, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
+                    current_hidden_state[:, 1:, :].reshape(batch_size, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
                 )
                 encoder_states = encoder_states + (hidden_state_reshaped,)
 
         if not return_dict:
             return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
         return BaseModelOutput(
-            last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
+            last_hidden_state=current_hidden_state, hidden_states=encoder_states, attentions=all_attentions
         )
 
 
@@ -1433,7 +1439,7 @@ class FANModel(FANPreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        # self.embeddings = FANEmbeddings(config)
+        self.embeddings = FANEmbeddings(config)
         self.encoder = FANEncoder(config)
 
         # Initialize weights and apply final processing
@@ -1498,10 +1504,18 @@ class FANModel(FANPreTrainedModel):
         device = pixel_values.device
 
         # Prepare head mask if needed
+        # First, sent pixel_values + pixel_mask through Backbone to obtain the features if needed
+        # pixel_values should be of shape (batch_size, num_channels, height, width)
+        # pixel_mask should be of shape (batch_size, height, width)
 
-        # embedding_output = self.embeddings(pixel_values=pixel_values)
+        hidden_states, (Hp, Wp), embeddings_encoder_states = self.embeddings(
+            pixel_values=pixel_values, output_hidden_states=output_hidden_states
+        )
         encoder_outputs = self.encoder(
-            pixel_values,
+            hidden_states,
+            Hp,
+            Wp,
+            embeddings_encoder_states,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,

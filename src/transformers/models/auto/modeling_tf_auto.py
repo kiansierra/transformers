@@ -50,6 +50,7 @@ TF_MODEL_MAPPING_NAMES = OrderedDict(
         ("funnel", ("TFFunnelModel", "TFFunnelBaseModel")),
         ("gpt2", "TFGPT2Model"),
         ("gptj", "TFGPTJModel"),
+        ("groupvit", "TFGroupViTModel"),
         ("hubert", "TFHubertModel"),
         ("layoutlm", "TFLayoutLMModel"),
         ("layoutlmv3", "TFLayoutLMv3Model"),
@@ -532,7 +533,7 @@ class TFAutoModelForDocumentQuestionAnswering(_BaseAutoModelClass):
 TFAutoModelForDocumentQuestionAnswering = auto_class_update(
     TFAutoModelForDocumentQuestionAnswering,
     head_doc="document question answering",
-    checkpoint_for_example='impira/layoutlm-document-qa", revision="3dc6de3',
+    checkpoint_for_example='impira/layoutlm-document-qa", revision="52e01b3',
 )
 
 
