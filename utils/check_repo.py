@@ -46,6 +46,10 @@ PRIVATE_MODELS = [
 # Being in this list is an exception and should **not** be the rule.
 IGNORE_NON_TESTED = PRIVATE_MODELS.copy() + [
     # models to ignore for not tested
+    "TimeSeriesTransformerEncoder",  # Building part of bigger (tested) model.
+    "TimeSeriesTransformerDecoder",  # Building part of bigger (tested) model.
+    "DeformableDetrEncoder",  # Building part of bigger (tested) model.
+    "DeformableDetrDecoder",  # Building part of bigger (tested) model.
     "OPTDecoder",  # Building part of bigger (tested) model.
     "DecisionTransformerGPT2Model",  # Building part of bigger (tested) model.
     "SegformerDecodeHead",  # Building part of bigger (tested) model.
@@ -58,6 +62,8 @@ IGNORE_NON_TESTED = PRIVATE_MODELS.copy() + [
     "DetrEncoder",  # Building part of bigger (tested) model.
     "DetrDecoder",  # Building part of bigger (tested) model.
     "DetrDecoderWrapper",  # Building part of bigger (tested) model.
+    "ConditionalDetrEncoder",  # Building part of bigger (tested) model.
+    "ConditionalDetrDecoder",  # Building part of bigger (tested) model.
     "M2M100Encoder",  # Building part of bigger (tested) model.
     "M2M100Decoder",  # Building part of bigger (tested) model.
     "MCTCTEncoder",  # Building part of bigger (tested) model.
@@ -128,6 +134,7 @@ TEST_FILES_WITH_NO_COMMON_TESTS = [
 # should **not** be the rule.
 IGNORE_NON_AUTO_CONFIGURED = PRIVATE_MODELS.copy() + [
     # models to ignore for model xxx mapping
+    "TimeSeriesTransformerForPrediction",
     "PegasusXEncoder",
     "PegasusXDecoder",
     "PegasusXDecoderWrapper",
@@ -159,10 +166,13 @@ IGNORE_NON_AUTO_CONFIGURED = PRIVATE_MODELS.copy() + [
     "GroupViTVisionModel",
     "TFCLIPTextModel",
     "TFCLIPVisionModel",
+    "TFGroupViTTextModel",
+    "TFGroupViTVisionModel",
     "FlaxCLIPTextModel",
     "FlaxCLIPVisionModel",
     "FlaxWav2Vec2ForCTC",
     "DetrForSegmentation",
+    "ConditionalDetrForSegmentation",
     "DPRReader",
     "FlaubertForQuestionAnswering",
     "FlavaImageCodebook",
@@ -207,6 +217,8 @@ IGNORE_NON_AUTO_CONFIGURED = PRIVATE_MODELS.copy() + [
     "TFWav2Vec2ForCTC",
     "TFHubertForCTC",
     "MaskFormerForInstanceSegmentation",
+    "XCLIPVisionModel",
+    "XCLIPTextModel",
 ]
 
 # Update this list for models that have multiple model types for the same
