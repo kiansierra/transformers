@@ -120,6 +120,7 @@ _import_structure = {
     ],
     "models": [],
     # Models
+    "models.fan": ["FAN_PRETRAINED_CONFIG_ARCHIVE_MAP", "FANConfig", "FANFeatureExtractor"],
     "models.albert": ["ALBERT_PRETRAINED_CONFIG_ARCHIVE_MAP", "AlbertConfig"],
     "models.auto": [
         "ALL_PRETRAINED_CONFIG_ARCHIVE_MAP",
@@ -680,6 +681,7 @@ else:
     _import_structure["models.conditional_detr"].append("ConditionalDetrFeatureExtractor")
     _import_structure["models.donut"].append("DonutFeatureExtractor")
     _import_structure["models.dpt"].append("DPTFeatureExtractor")
+    _import_structure["models.fan"].extend(["FANFeatureExtractor"])
     _import_structure["models.flava"].extend(["FlavaFeatureExtractor", "FlavaProcessor"])
     _import_structure["models.glpn"].append("GLPNFeatureExtractor")
     _import_structure["models.imagegpt"].append("ImageGPTFeatureExtractor")
@@ -820,6 +822,17 @@ else:
 
     # PyTorch models structure
 
+    _import_structure["models.fan"].extend(
+        [
+            "FAN_PRETRAINED_MODEL_ARCHIVE_LIST",
+            "FANForImageClassification",
+            "FANForSemanticSegmentation",
+            "FANLayer",
+            "FANModel",
+            "FANPreTrainedModel",
+            "load_tf_weights_in_fan",
+        ]
+    )
     _import_structure["models.time_series_transformer"].extend(
         [
             "TIME_SERIES_TRANSFORMER_PRETRAINED_MODEL_ARCHIVE_LIST",
@@ -3185,6 +3198,7 @@ if TYPE_CHECKING:
     from .models.encoder_decoder import EncoderDecoderConfig
     from .models.ernie import ERNIE_PRETRAINED_CONFIG_ARCHIVE_MAP, ErnieConfig
     from .models.esm import ESM_PRETRAINED_CONFIG_ARCHIVE_MAP, EsmConfig, EsmTokenizer
+    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANTokenizer
     from .models.flaubert import FLAUBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, FlaubertConfig, FlaubertTokenizer
     from .models.flava import (
         FLAVA_PRETRAINED_CONFIG_ARCHIVE_MAP,
@@ -3509,6 +3523,7 @@ if TYPE_CHECKING:
         from .models.distilbert import DistilBertTokenizerFast
         from .models.dpr import DPRContextEncoderTokenizerFast, DPRQuestionEncoderTokenizerFast, DPRReaderTokenizerFast
         from .models.electra import ElectraTokenizerFast
+        from .models.fan import FANTokenizerFast
         from .models.fnet import FNetTokenizerFast
         from .models.funnel import FunnelTokenizerFast
         from .models.gpt2 import GPT2TokenizerFast
@@ -3709,8 +3724,6 @@ if TYPE_CHECKING:
         )
         from .generation_utils import top_k_top_p_filtering
         from .modeling_utils import PreTrainedModel
-
-        # PyTorch model imports
         from .models.albert import (
             ALBERT_PRETRAINED_MODEL_ARCHIVE_LIST,
             AlbertForMaskedLM,
@@ -4050,6 +4063,15 @@ if TYPE_CHECKING:
             EsmForTokenClassification,
             EsmModel,
             EsmPreTrainedModel,
+        )
+
+        # PyTorch model imports
+        from .models.fan import (
+            FAN_PRETRAINED_MODEL_ARCHIVE_LIST,
+            FANForImageClassification,
+            FANForSemanticSegmentation,
+            FANModel,
+            FANPreTrainedModel,
         )
         from .models.flaubert import (
             FLAUBERT_PRETRAINED_MODEL_ARCHIVE_LIST,
