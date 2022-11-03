@@ -32,6 +32,7 @@ original_feature_mapping = {
     "num_heads": "num_attention_heads",
     "dropout_ratio": "decoder_dropout",
     "depth": "num_hidden_layers",
+    "in_channels": "segmentation_in_channels",
 }
 
 # TODO: FANConfig Attributes rewrite
@@ -57,13 +58,34 @@ class FANConfig(PretrainedConfig):
         num_hidden_layers (`int`, *optional*, defaults to 12):
             Number of hidden layers in the Transformer encoder.
         se_mlp (`bool`, defaults to False):
-            Wheter or not to use Squeeze-Excite in the FANEncoder layers MLP
-        depths (tuple(int)):
-             Number of blocks at each stage, when using hybrid backbone
+            Wheter or not to use Squeeze-Excite in the FANEncoder layers MLP.
         num_attention_heads (`int`, *optional*, defaults to 8):
             Number of attention heads for each attention layer in the Transformer encoder.
+        qkv_bias (`bool`, defaults to True):
+            Whether or not to use bias in Query, Key and Value in attention layers.
+        depths (tuple(int)):
+            Number of blocks at each stage, when using hybrid backbone (ConvNeXt).
+        eta (`float` defatults to 1.0):
+            Weight Initialization value for channel importance.
+        use_pos_embed ( `bool`, defaults to True):
+            Wheter or not to use positional_encoding in the embeddings.
+        img_size (tuple(int), defaults to (224,224)):
+            The size of the images being passed to the model.
+        in_chans (int, defaults to 3):
+            Number of channels the input image has.
+        num_classes (int, defaults to 1000):
+            Number of classes used to predict, used for ImageClassification and  SemanticSegmentation tasks.
+        backbone (`string`, *optional*, defaults to None):
+            Wheter or not to use 'hybrid' backbone.
+        segmentation_in_channels (tuple(int), defaults to (128, 256, 480, 480)):
+            Number of channels in each of the hidden features used for Semantic Segmentation.
+        decoder_dropout (`float`, defaults to 0.1):
+            Dropout used in Decode Head for SemanticSegmentation tasks.
         tokens_norm (`bool`, defaults to True):
-            Whether or not to apply normalization in the Class Attention block
+            Whether or not to apply normalization in the Class Attention block.
+        feat_downsample (`bool`, defaults to ):
+            Whether or not to use a learnable downsample convolution to obtain hidden states for SemanticSegmentation tasks.
+            Only appliable with hybrid backbone.
         intermediate_size (`int`, *optional*, defaults to 3072):
             Dimension of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder.
         hidden_act (`str` or `function`, *optional*, defaults to `"gelu"`):
@@ -104,40 +126,36 @@ class FANConfig(PretrainedConfig):
 
     def __init__(
         self,
-        patch_size=16,
-        embed_dim=384,
-        num_hidden_layers=12,
-        depths=None,
-        num_attention_heads=8,
-        eta=1.0,
-        tokens_norm=True,
-        sharpen_attn=False,
-        se_mlp=False,
-        # sr_ratio=None,
-        initializer_range=1.0,
-        img_size=(224, 224),
-        in_chans=3,
-        num_classes=1000,
-        backbone=None,
+        patch_size=16,  # HASCOMMENTS
+        embed_dim=384,  # HASCOMMENTS
+        num_hidden_layers=12,  # HASCOMMENTS
+        num_attention_heads=8,  # HASCOMMENTS
+        depths=None,  # HASCOMMENTS
+        eta=1.0,  # HASCOMMENTS
+        tokens_norm=True,  # HASCOMMENTS
+        se_mlp=False,  # HASCOMMENTS
+        initializer_range=1.0,  # HASCOMMENTS
+        img_size=(224, 224),  # HASCOMMENTS
+        in_chans=3,  # HASCOMMENTS
+        num_classes=1000,  # HASCOMMENTS
+        backbone=None,  # HASCOMMENTS
         use_checkpoint=False,
-        use_pos_embed=True,
+        use_pos_embed=True,  # HASCOMMENTS
         mlp_ratio=4.0,
-        qkv_bias=True,
+        qkv_bias=True,  # HASCOMMENTS
         drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.0,
-        decoder_dropout=0.1,
+        decoder_dropout=0.1,  # HASCOMMENTS
         act_layer=None,
         norm_layer=None,
         cls_attn_layers=2,
-        c_head_num=None,
         hybrid_patch_size=2,
-        head_init_scale=1.0,
         channel_dims=None,
-        feat_downsample=False,
+        feat_downsample=False,  # HASCOMMENTS
         out_index=-1,
         rounding_mode="floor",
-        in_channels=[128, 256, 480, 480],
+        segmentation_in_channels=[128, 256, 480, 480],  # HASCOMMENTS
         in_index=[0, 1, 2, 3],
         feature_strides=[4, 8, 16, 32],
         channels=256,
@@ -149,13 +167,11 @@ class FANConfig(PretrainedConfig):
 
         self.patch_size = patch_size
         self.embed_dim = embed_dim
-        head_init_scale = head_init_scale
         self.num_hidden_layers = num_hidden_layers
         self.depths = depths
         self.num_attention_heads = num_attention_heads
         self.eta = eta
         self.tokens_norm = tokens_norm
-        self.sharpen_attn = sharpen_attn
         self.se_mlp = se_mlp
         # self.sr_ratio = sr_ratio if sr_ratio else [1] * (num_hidden_layers // 2) + [1] * (num_hidden_layers // 2)
         self.initializer_range = initializer_range
@@ -175,13 +191,13 @@ class FANConfig(PretrainedConfig):
         self.norm_layer = norm_layer
         self.act_layer = act_layer
         self.cls_attn_layers = cls_attn_layers
-        self.c_head_num = c_head_num
+        # self.c_head_num = c_head_num
         self.hybrid_patch_size = hybrid_patch_size
         self.channel_dims = channel_dims
         self.out_index = out_index
         self.feat_downsample = feat_downsample
         self.rounding_mode = rounding_mode
-        self.in_channels = in_channels
+        self.segmentation_in_channels = segmentation_in_channels
         self.in_index = in_index
         self.feature_strides = feature_strides
         self.channels = channels
