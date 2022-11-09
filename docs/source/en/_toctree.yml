@@ -247,6 +247,8 @@
         title: ERNIE
       - local: model_doc/esm
         title: ESM
+      - local: model_doc/fan
+        title: FAN
       - local: model_doc/flaubert
         title: FlauBERT
       - local: model_doc/fnet
