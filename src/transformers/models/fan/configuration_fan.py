@@ -32,8 +32,12 @@ original_feature_mapping = {
     "dropout_ratio": "decoder_dropout",
     "depth": "num_hidden_layers",
     "in_channels": "segmentation_in_channels",
+    "in_chans": "num_channels",
+    "num_classes": "num_labels",
+    "embed_dim": "hidden_size",
 }
-
+# TODO: Rename embed_dim to hidden_size
+# DONE: Rename num_classes to num_labels
 # TODO: FANConfig Attributes rewrite
 # TODO: FANConfig features rename
 # ISSUE: Move configuration to nvidia/fan
@@ -52,29 +56,30 @@ class FANConfig(PretrainedConfig):
     Args:
         patch_size (int, defaults to 16):
             Size of each patch to generated the embedding tokens from the image
-        embed_dim (`int`, *optional*, defaults to 384):
+        hidden_size (`int`, *optional*, defaults to 384):
             Dimension of the encoder layers and the pooler layer.
         num_hidden_layers (`int`, *optional*, defaults to 12):
             Number of hidden layers in the Transformer encoder.
         se_mlp (`bool`, defaults to False):
             Wheter or not to use Squeeze-Excite in the FANEncoder layers MLP.
         mlp_ratio (`float`, defaults to 4.0):
-            Expand factor used in MLP blocks.
+            Ratio of the size of the hidden layer compared to the size of the input layer of the Mix FFNs in the
+            encoder blocks.
         num_attention_heads (`int`, *optional*, defaults to 8):
             Number of attention heads for each attention layer in the Transformer encoder.
         qkv_bias (`bool`, defaults to True):
             Whether or not to use bias in Query, Key and Value in attention layers.
-        depths (tuple(int)):
-            Number of blocks at each stage, when using hybrid backbone (ConvNeXt).
+        depths (`List[int]`, *optional*, defaults to None):
+            The number of layers in each encoder block, only applicable when using hybrid backbone (ConvNeXt).
         eta (`float` defatults to 1.0):
             Weight Initialization value for channel importance.
         use_pos_embed ( `bool`, defaults to True):
             Wheter or not to use positional_encoding in the embeddings.
-        img_size (tuple(int), defaults to (224,224)):
+        img_size (`List[int]`, defaults to (224,224)):
             The size of the images being passed to the model.
-        in_chans (int, defaults to 3):
+        num_channels (`int`, defaults to 3):
             Number of channels the input image has.
-        num_classes (int, defaults to 1000):
+        num_labels (`int`, defaults to 1000):
             Number of classes used to predict, used for ImageClassification and  SemanticSegmentation tasks.
         backbone (`string`, *optional*, defaults to None):
             Wheter or not to use 'hybrid' backbone.
@@ -95,7 +100,7 @@ class FANConfig(PretrainedConfig):
             Only appliable with hybrid backbone.
         channel_dims (`tuple(int)`, *optional*, defaults to None):
             List of Input channels for each of the encoder layers.
-            If None it defaults to [config.embed_dim] * config.num_hidden_layers.
+            If None it defaults to [config.hidden_size] * config.num_hidden_layers.
         rounding_mode (`string`, *optional*, defaults to 'floor'):
             Torch Divison rounding mode used for positional encoding.
             Should be set to None in Semantic Segmentation tasks to be compatible with original paper implementation.
@@ -120,9 +125,6 @@ class FANConfig(PretrainedConfig):
             The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
         layer_norm_eps (`float`, *optional*, defaults to 1e-12):
             The epsilon used by the layer normalization layers.
-        use_cache (`bool`, *optional*, defaults to `True`):
-            Whether or not the model should return the last key/values attentions (not used by all models). Only
-            relevant if `config.is_decoder=True`.
         Example:
 
     ```python
@@ -142,7 +144,7 @@ class FANConfig(PretrainedConfig):
     def __init__(
         self,
         patch_size=16,  # HASCOMMENTS
-        embed_dim=384,  # HASCOMMENTS
+        hidden_size=384,  # HASCOMMENTS
         num_hidden_layers=12,  # HASCOMMENTS
         num_attention_heads=8,  # HASCOMMENTS
         depths=None,  # HASCOMMENTS
@@ -150,9 +152,9 @@ class FANConfig(PretrainedConfig):
         tokens_norm=True,  # HASCOMMENTS
         se_mlp=False,  # HASCOMMENTS
         initializer_range=1.0,  # HASCOMMENTS
-        img_size=(224, 224),  # HASCOMMENTS
-        in_chans=3,  # HASCOMMENTS
-        num_classes=1000,  # HASCOMMENTS
+        img_size=[224, 224],  # HASCOMMENTS
+        num_channels=3,  # HASCOMMENTS
+        # num_labels=1000,  # HASCOMMENTS
         backbone=None,  # HASCOMMENTS
         use_checkpoint=False,  # TODO: Rename for HF Consistency
         use_pos_embed=True,  # HASCOMMENTS
@@ -180,7 +182,7 @@ class FANConfig(PretrainedConfig):
     ):
 
         self.patch_size = patch_size
-        self.embed_dim = embed_dim
+        self.hidden_size = hidden_size
         self.num_hidden_layers = num_hidden_layers
         self.depths = depths
         self.num_attention_heads = num_attention_heads
@@ -189,8 +191,8 @@ class FANConfig(PretrainedConfig):
         self.se_mlp = se_mlp
         self.initializer_range = initializer_range
         self.img_size = img_size
-        self.in_chans = in_chans
-        self.num_classes = num_classes
+        self.num_channels = num_channels
+        # self.num_labels = num_labels
         self.backbone = backbone
         self.use_checkpoint = use_checkpoint
         self.use_pos_embed = use_pos_embed
