@@ -117,6 +117,45 @@ class FANModelOutput(ModelOutput):
 
 
 @dataclass
+class FANSemanticSegmenterOutput(ModelOutput):
+    """
+    Base class for outputs of semantic segmentation models.
+
+    Args:
+        loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
+            Classification (or regression if config.num_labels==1) loss.
+        logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels, logits_height, logits_width)`):
+            Classification scores for each pixel.
+
+            <Tip warning={true}>
+
+            The logits returned do not necessarily have the same size as the `pixel_values` passed as inputs. This is
+            to avoid doing two interpolations and lose some quality when a user needs to resize the logits to the
+            original image size as post-processing. You should always check your logits shape and resize as needed.
+
+            </Tip>
+
+        hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+            Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
+            one for the output of each layer) of shape `(batch_size, patch_size, hidden_size)`.
+
+            Hidden-states of the model at the output of each layer plus the optional initial embedding outputs.
+        attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
+            Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, patch_size,
+            sequence_length)`.
+
+            Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
+            heads.
+    """
+
+    loss: Optional[torch.FloatTensor] = None
+    logits: torch.FloatTensor = None
+    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    attentions: Optional[Tuple[torch.FloatTensor]] = None
+    backbone_hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+
+
+@dataclass
 class FANImageClassifierOutput(ModelOutput):
     """
     Base class for outputs of image classification models.
@@ -1013,6 +1052,10 @@ class ConvNeXtBlock(nn.Module):
         self.mlp = mlp_layer(dim, int(mlp_ratio * dim), act_layer=nn.GELU)
         self.weight = nn.Parameter(ls_init_value * torch.ones(dim)) if ls_init_value > 0 else None
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        # Added This initialization to pass initialization Test
+        self.weight.data = nn.init.trunc_normal_(
+            self.weight.data, std=ls_init_value, a=-2 * ls_init_value, b=2 * ls_init_value
+        )
 
     def forward(self, x):
         shortcut = x
@@ -1186,7 +1229,7 @@ class FANPreTrainedModel(PreTrainedModel):
     """
 
     config_class = FANConfig
-    base_model_prefix = "fan"  # TODO: FAN or model?
+    base_model_prefix = "fan"
     main_input_name = "pixel_values"
     supports_gradient_checkpointing = True
     _keys_to_ignore_on_load_missing = [r"position_ids"]
@@ -1194,7 +1237,11 @@ class FANPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module: Union[nn.Linear, nn.Conv2d, nn.LayerNorm]) -> None:
         """Initialize the weights"""
         if isinstance(module, (nn.Linear, nn.Conv2d)):
-            module.weight.data = nn.init.trunc_normal_(module.weight.data, mean=0.0, std=self.config.initializer_range)
+            # Added Lower and Upper bound to pass initialization test
+            lower, upper = -2 * self.config.initializer_range, 2 * self.config.initializer_range
+            module.weight.data = nn.init.trunc_normal_(
+                module.weight.data, mean=0.0, std=self.config.initializer_range, a=lower, b=upper
+            )
             if module.bias is not None:
                 module.bias.data.zero_()
         elif isinstance(module, nn.LayerNorm):
@@ -1289,7 +1336,12 @@ class FANEmbeddings(FANPreTrainedModel):
                 act_layer=act_layer,
             )
         elif config.backbone == "hybrid":
-            backbone = ConvNeXt(depths=self.config.depths, dims=self.config.dims, use_head=False)
+            backbone = ConvNeXt(
+                depths=self.config.depths,
+                dims=self.config.dims,
+                use_head=False,
+                ls_init_value=self.config.initializer_range,
+            )
             self.patch_embed = HybridEmbed(
                 backbone=backbone, patch_size=config.hybrid_patch_size, hidden_size=config.hidden_size
             )
@@ -1302,9 +1354,7 @@ class FANEmbeddings(FANPreTrainedModel):
     def forward(
         self,
         pixel_values=None,
-        output_attentions=None,
         output_hidden_states=None,
-        return_dict=None,
     ):
         """
         Args:
@@ -1319,7 +1369,6 @@ class FANEmbeddings(FANPreTrainedModel):
         """
         batch_size = pixel_values.shape[0]
         encoder_states = () if output_hidden_states else None
-        all_attentions = () if output_attentions else None
         if isinstance(self.patch_embed, HybridEmbed):
             hidden_states, (Hp, Wp), out_list = self.patch_embed(pixel_values, return_feat=True)
             if output_hidden_states:
@@ -1461,15 +1510,9 @@ class FANEncoder(FANPreTrainedModel):
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
         is_backbone_hybrid = self.config.backbone == "hybrid"
-        # out_index = [4, 7, 11]
-        # if output_hidden_states and is_backbone_hybrid:
-        #     encoder_states = encoder_states + embedding_hidden_states
-        #     out_index = [self.config.out_index]
 
         current_hidden_state = inputs_embeds
-        # TODO: Add all Hidden States, use out_index for segmentation selection
         for idx, blk in enumerate(self.blocks):
-            # blk.H, blk.W = Hp, Wp
 
             if self.gradient_checkpointing:
                 current_hidden_state, Hp, Wp, attn = torch.utils.checkpoint.checkpoint(
@@ -1481,14 +1524,8 @@ class FANEncoder(FANPreTrainedModel):
             if output_attentions:
                 all_attentions = all_attentions + (attn,)
 
-            # if idx in out_index and output_hidden_states:
             if output_hidden_states:
-
-                hidden_state_reshaped = (
-                    current_hidden_state.reshape(batch_size, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
-                )
                 encoder_states = encoder_states + (current_hidden_state,)
-            # Hp, Wp = blk.H, blk.W
 
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         current_hidden_state = torch.cat((cls_tokens, current_hidden_state), dim=1)
@@ -1496,7 +1533,6 @@ class FANEncoder(FANPreTrainedModel):
         for blk in self.cls_attn_blocks:
             if output_attentions:
                 current_hidden_state, attn = blk(current_hidden_state, output_attentions)
-                # all_attentions = all_attentions + (attn,)
             else:
                 current_hidden_state = blk(current_hidden_state)
 
@@ -1578,7 +1614,6 @@ class FANModel(FANPreTrainedModel):
     def forward(
         self,
         pixel_values,
-        pixel_mask=None,
         output_attentions=None,
         output_hidden_states=None,
         return_dict=True,
@@ -1613,9 +1648,8 @@ class FANModel(FANPreTrainedModel):
         device = pixel_values.device
 
         # Prepare head mask if needed
-        # First, sent pixel_values + pixel_mask through Backbone to obtain the features if needed
+        # First, sent pixel_values through Backbone to obtain the features if needed
         # pixel_values should be of shape (batch_size, num_channels, height, width)
-        # pixel_mask should be of shape (batch_size, height, width)
 
         hidden_states, (Hp, Wp), embeddings_encoder_states = self.embeddings(
             pixel_values=pixel_values, output_hidden_states=output_hidden_states
@@ -1690,7 +1724,6 @@ class FANForImageClassification(FANPreTrainedModel):
     def forward(
         self,
         pixel_values,
-        pixel_mask=None,
         labels: Optional[torch.Tensor] = None,
         output_attentions=None,
         output_hidden_states=None,
@@ -1733,7 +1766,6 @@ class FANForImageClassification(FANPreTrainedModel):
 
         outputs = self.fan(
             pixel_values,
-            pixel_mask=None,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=None,
@@ -1800,8 +1832,6 @@ class FANDecodeHead(FANPreTrainedModel):
         super().__init__(config)
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
         mlps = []
-        # for i in range(config.num_encoder_blocks):
-        #     mlp = SegformerMLP(config, input_dim=config.hidden_sizes[i])
         for in_channels in config.segmentation_in_channels:
             mlp = SegformerMLP(config, input_dim=in_channels)
             mlps.append(mlp)
@@ -1926,6 +1956,8 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
         [1, 150, 128, 128]
         ```"""
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
@@ -1934,7 +1966,7 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
             pixel_values,
             output_attentions=output_attentions,
             output_hidden_states=True,  # we need the intermediate hidden states
-            return_dict=return_dict,
+            return_dict=True,
         )
 
         encoder_hidden_states = outputs.hidden_states if return_dict else outputs[1]
@@ -1954,16 +1986,30 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
                 loss_fct = CrossEntropyLoss(ignore_index=self.config.semantic_loss_ignore_index)
                 loss = loss_fct(upsampled_logits, labels)
 
-        if not return_dict:
-            if output_hidden_states:
-                output = (logits,) + outputs[1:]
-            else:
-                output = (logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
+        # if not return_dict:
+        #     if output_hidden_states:
+        #         output = (logits,) + outputs[1:]
+        #     else:
+        #         output = (logits,) + outputs[2:]
+        #     return ((loss,) + output) if loss is not None else output
 
-        return SemanticSegmenterOutput(
+        if not return_dict:
+            return tuple(
+                v
+                for v in [
+                    loss,
+                    logits,
+                    outputs.hidden_states if output_hidden_states else None,
+                    outputs.attentions if output_attentions else None,
+                    outputs.backbone_hidden_states if output_hidden_states else None,
+                ]
+                if v is not None
+            )
+
+        return FANSemanticSegmenterOutput(
             loss=loss,
             logits=logits,
             hidden_states=outputs.hidden_states if output_hidden_states else None,
-            attentions=outputs.attentions,
+            attentions=outputs.attentions if output_attentions else None,
+            backbone_hidden_states=outputs.backbone_hidden_states if output_hidden_states else None,
         )
