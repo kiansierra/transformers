@@ -32,7 +32,7 @@ from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torch.nn import functional as F
 
-from ...activations import ACT2FN
+from ...activations import ACT2CLS, ACT2FN
 from ...modeling_outputs import (
     BaseModelOutput,
     BaseModelOutputWithPastAndCrossAttentions,
@@ -50,15 +50,10 @@ from ...utils import (
     add_code_sample_docstrings,
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
-    is_timm_available,
     logging,
     replace_return_docstrings,
 )
 from .configuration_fan import FANConfig
-
-if is_timm_available():
-    from timm.models.layers import trunc_normal_
-
 
 logger = logging.get_logger(__name__)
 
@@ -108,6 +103,8 @@ class FANModelOutput(ModelOutput):
 
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
+        backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (ConvNeXt).
     """
 
     last_hidden_state: torch.FloatTensor = None
@@ -146,6 +143,8 @@ class FANSemanticSegmenterOutput(ModelOutput):
 
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
+        backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (ConvNeXt).
     """
 
     loss: Optional[torch.FloatTensor] = None
@@ -175,6 +174,8 @@ class FANImageClassifierOutput(ModelOutput):
 
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
+        backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (ConvNeXt).
     """
 
     loss: Optional[torch.FloatTensor] = None
@@ -1275,36 +1276,6 @@ FAN_INPUTS_DOCSTRING = r"""
             Pixel values can be obtained using [`FANFeatureExtractor`]. See [`FANFeatureExtractor.__call__`] for
             details.
 
-            [What are input IDs?](../glossary#input-ids)
-        attention_mask (`torch.FloatTensor` of shape `({0})`, *optional*):
-            Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
-
-            - 1 for tokens that are **not masked**,
-            - 0 for tokens that are **masked**.
-
-            [What are attention masks?](../glossary#attention-mask)
-        token_type_ids (`torch.LongTensor` of shape `({0})`, *optional*):
-            Segment token indices to indicate first and second portions of the inputs. Indices are selected in `[0, 1]`:
-
-            - 0 corresponds to a *sentence A* token,
-            - 1 corresponds to a *sentence B* token.
-
-            [What are token type IDs?](../glossary#token-type-ids)
-        position_ids (`torch.LongTensor` of shape `({0})`, *optional*):
-            Indices of positions of each input sequence tokens in the position embeddings.
-            Selected in the range `[0, config.max_position_embeddings - 1]`.
-
-            [What are position IDs?](../glossary#position-ids)
-        head_mask (`torch.FloatTensor` of shape `(num_attention_heads,)` or `(num_layers, num_attention_heads)`, *optional*):
-            Mask to nullify selected heads of the self-attention modules. Mask values selected in `[0, 1]`:
-
-            - 1 indicates the head is **not masked**,
-            - 0 indicates the head is **masked**.
-
-        inputs_embeds (`torch.FloatTensor` of shape `({0}, hidden_size)`, *optional*):
-            Optionally, instead of passing `input_ids` you can choose to directly pass an embedded representation.
-            This is useful if you want more control over how to convert *input_ids* indices into associated vectors
-            than the model's internal embedding lookup matrix.
         output_attentions (`bool`, *optional*):
             Whether or not to return the attentions tensors of all attention layers. See `attentions` under returned
             tensors for more detail.
@@ -1325,7 +1296,7 @@ class FANEmbeddings(FANPreTrainedModel):
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
-        act_layer = config.act_layer or nn.GELU
+        act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
 
         if config.backbone == None:
             self.patch_embed = ConvPatchEmbed(
@@ -1407,7 +1378,9 @@ class FANEncoderLayer(FANPreTrainedModel):
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
         norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        act_layer = config.act_layer or nn.GELU
+        # act_layer = config.act_layer or nn.GELU
+        act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
+
         downsample = None
 
         if config.se_mlp:
@@ -1463,7 +1436,9 @@ class FANEncoder(FANPreTrainedModel):
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
         norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        act_layer = config.act_layer or nn.GELU
+        # act_layer = config.act_layer or nn.GELU
+        act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
+
         self.blocks = nn.ModuleList([FANEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
         self.num_features = self.hidden_size = channel_dims[-1]
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
@@ -1576,11 +1551,6 @@ class FANModel(FANPreTrainedModel):
     all you need](https://arxiv.org/abs/1706.03762) by Ashish Vaswani,
     Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin.
 
-    To behave as an decoder the model needs to be initialized with the
-    `is_decoder` argument of the configuration set to `True`.
-    To be used in a Seq2Seq model, the model needs to initialized with both `is_decoder`
-    argument and `add_cross_attention` set to `True`; an
-    `encoder_hidden_states` is then expected as an input to the forward pass.
     """
 
     def __init__(self, config):
@@ -1608,7 +1578,7 @@ class FANModel(FANPreTrainedModel):
     @add_code_sample_docstrings(
         processor_class=_FEAT_EXTRACTOR_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
-        output_type=BaseModelOutputWithPastAndCrossAttentions,
+        output_type=FANModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )
     def forward(
@@ -1618,26 +1588,6 @@ class FANModel(FANPreTrainedModel):
         output_hidden_states=None,
         return_dict=True,
     ):
-        r"""
-        encoder_hidden_states  (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
-            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention
-            if the model is configured as a decoder.
-        encoder_attention_mask (`torch.FloatTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
-            is used in the cross-attention if the model is configured as a decoder.
-            Mask values selected in `[0, 1]`:
-
-            - 1 for tokens that are **not masked**,
-            - 0 for tokens that are **masked**.
-        past_key_values (`tuple(tuple(torch.FloatTensor))` of length `config.n_layers` with each tuple having 4 tensors of shape `(batch_size, num_attention_heads, sequence_length - 1, embed_size_per_head)`):
-            Contains precomputed key and value hidden states of the attention blocks. Can be used to speed up decoding.
-            If `past_key_values` are used, the user can optionally input only the last `decoder_input_ids`
-            (those that don't have their past key value states given to this model) of shape `(batch_size, 1)`
-            instead of all `decoder_input_ids` of shape `(batch_size, sequence_length)`.
-        use_cache (`bool`, *optional*):
-            If set to `True`, `past_key_values` key value states are returned and can be used to speed up
-            decoding (see `past_key_values`).
-        """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -1670,18 +1620,15 @@ class FANModel(FANPreTrainedModel):
 
         return FANModelOutput(
             last_hidden_state=sequence_output,
-            hidden_states=encoder_outputs.hidden_states,
-            attentions=encoder_outputs.attentions,
-            backbone_hidden_states=embeddings_encoder_states,
+            hidden_states=encoder_outputs.hidden_states if output_hidden_states else None,
+            attentions=encoder_outputs.attentions if output_attentions else None,
+            backbone_hidden_states=embeddings_encoder_states if output_hidden_states else None,
         )
 
 
 class FANClassificationHead(nn.Module):
     """
-    Very simple multi-layer perceptron (MLP, also called FFN), used to predict the normalized center coordinates,
-    height and width of a bounding box w.r.t. an image.
-
-    Copied from https://github.com/facebookresearch/detr/blob/master/models/detr.py
+    Very simple multi-layer perceptron (MLP, also called FFN), used to predict the image classes logits
 
     """
 
@@ -1700,7 +1647,7 @@ class FANClassificationHead(nn.Module):
 # TODO: Update Image Classification Docstring
 @add_start_docstrings(
     """
-    DeiT Model transformer with an image classification head on top (a linear layer on top of the final hidden state of
+    FAN Model transformer with an image classification head on top (a linear layer on top of the final hidden state of
     the [CLS] token) e.g. for ImageNet.
     """,
     FAN_START_DOCSTRING,
@@ -1709,18 +1656,18 @@ class FANForImageClassification(FANPreTrainedModel):
     def __init__(self, config: FANConfig):
         super().__init__(config)
 
-        # DETR encoder-decoder model
+        # FAN encoder model
         self.fan = FANModel(config)
 
         num_features = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
-        # Object detection heads
+        # Image clasification head
         self.head = FANClassificationHead(config.num_labels, num_features, config.norm_layer)
 
         # Initialize weights and apply final processing
         self.post_init()
 
     @add_start_docstrings_to_model_forward(FAN_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=ImageClassifierOutput, config_class=_CONFIG_FOR_DOC)
+    @replace_return_docstrings(output_type=FANImageClassifierOutput, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         pixel_values,
@@ -1729,7 +1676,6 @@ class FANForImageClassification(FANPreTrainedModel):
         output_hidden_states=None,
         return_dict=True,
     ):
-        # TODO: Update Docstring appropiately
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the image classification/regression loss. Indices should be in `[0, ...,
@@ -1741,28 +1687,25 @@ class FANForImageClassification(FANPreTrainedModel):
         Examples:
 
         ```python
-        >>> from transformers import DeiTFeatureExtractor, DeiTForImageClassification
-        >>> import torch
-        >>> from PIL import Image
-        >>> import requests
-
+        >>> from transformers import  FANForImageClassification, FANFeatureExtractor
         >>> torch.manual_seed(3)  # doctest: +IGNORE_RESULT
         >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
         >>> image = Image.open(requests.get(url, stream=True).raw)
-
-        >>> # note: we are loading a DeiTForImageClassificationWithTeacher from the hub here,
-        >>> # so the head will be randomly initialized, hence the predictions will be random
-        >>> feature_extractor = DeiTFeatureExtractor.from_pretrained("facebook/deit-base-distilled-patch16-224")
-        >>> model = DeiTForImageClassification.from_pretrained("facebook/deit-base-distilled-patch16-224")
-
+        >>> feature_extractor = FANFeatureExtractor.from_pretrained("ksmcg/fan_base_18_p16_224")
+        >>> model = FANForImageClassification.from_pretrained("ksmcg/fan_base_18_p16_224")
         >>> inputs = feature_extractor(images=image, return_tensors="pt")
         >>> outputs = model(**inputs)
         >>> logits = outputs.logits
         >>> # model predicts one of the 1000 ImageNet classes
         >>> predicted_class_idx = logits.argmax(-1).item()
         >>> print("Predicted class:", model.config.id2label[predicted_class_idx])
-        Predicted class: maillot
+        Predicted class: tabby, tabby cat
         ```"""
+
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
 
         outputs = self.fan(
             pixel_values,
@@ -1805,9 +1748,9 @@ class FANForImageClassification(FANPreTrainedModel):
         return FANImageClassifierOutput(
             loss=loss,
             logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-            backbone_hidden_states=outputs.backbone_hidden_states,
+            hidden_states=outputs.hidden_states if output_hidden_states else None,
+            attentions=outputs.attentions if output_attentions else None,
+            backbone_hidden_states=outputs.backbone_hidden_states if output_hidden_states else None,
         )
 
 
@@ -1871,7 +1814,7 @@ class FANDecodeHead(FANPreTrainedModel):
             )
         else:
             encoder_states = (reshape_hidden_state(encoder_hidden_states[idx]) for idx in out_index) + (
-                encoder_hidden_state[-1],
+                encoder_hidden_states[-1],
             )
 
         all_hidden_states = ()
@@ -1919,7 +1862,7 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
         self.post_init()
 
     @add_start_docstrings_to_model_forward(FAN_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
-    @replace_return_docstrings(output_type=SemanticSegmenterOutput, config_class=_CONFIG_FOR_DOC)
+    @replace_return_docstrings(output_type=FANSemanticSegmenterOutput, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         pixel_values: torch.FloatTensor,
@@ -1939,21 +1882,20 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
         Examples:
 
         ```python
-        >>> from transformers import SegformerFeatureExtractor, SegformerForSemanticSegmentation
+        >>> from transformers import FANForSemanticSegmentation, FANFeatureExtractor
         >>> from PIL import Image
         >>> import requests
-
-        >>> feature_extractor = SegformerFeatureExtractor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
-        >>> model = SegformerForSemanticSegmentation.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
-
+        >>> feature_extractor = FANFeatureExtractor.from_pretrained("ksmcg/fan_base_16_p4_hybrid")
+        >>> # note: we are loading a FANForSemanticSegmentation from the hub here,
+        >>> # so the head will be randomly initialized, hence the predictions will be random
+        >>> model = FANForSemanticSegmentation.from_pretrained("ksmcg/fan_base_16_p4_hybrid")
         >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
         >>> image = Image.open(requests.get(url, stream=True).raw)
-
         >>> inputs = feature_extractor(images=image, return_tensors="pt")
         >>> outputs = model(**inputs)
         >>> logits = outputs.logits  # shape (batch_size, num_labels, height/4, width/4)
         >>> list(logits.shape)
-        [1, 150, 128, 128]
+        [1, 1000, 56, 56]
         ```"""
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
