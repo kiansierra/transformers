@@ -57,7 +57,7 @@ from .configuration_fan import FANConfig
 
 logger = logging.get_logger(__name__)
 
-_CHECKPOINT_FOR_DOC = "nvidia/fan"
+_CHECKPOINT_FOR_DOC = "ksmcg/fan_base_18_p16_224"
 _CONFIG_FOR_DOC = "FANConfig"
 _FEAT_EXTRACTOR_FOR_DOC = "FANFeatureExtractor"
 
@@ -204,10 +204,10 @@ class PositionalEncodingFourier(nn.Module):
         # Segmentation Positional Encoder link https://github.com/NVlabs/FAN/blob/master/segmentation/mmseg/models/backbones/fan.py
         # Classifier Positional Encoder link https://github.com/NVlabs/FAN/blob/master/models/fan.py
 
-    def forward(self, B: int, H: int, W: int):
+    def forward(self, batch_size: int, height: int, width: int):
         device = self.token_projection.weight.device
-        y_embed = torch.arange(1, H + 1, dtype=torch.float32, device=device).unsqueeze(1).repeat(1, 1, W)
-        x_embed = torch.arange(1, W + 1, dtype=torch.float32, device=device).repeat(1, H, 1)
+        y_embed = torch.arange(1, height + 1, dtype=torch.float32, device=device).unsqueeze(1).repeat(1, 1, width)
+        x_embed = torch.arange(1, width + 1, dtype=torch.float32, device=device).repeat(1, height, 1)
         y_embed = y_embed / (y_embed[:, -1:, :] + self.eps) * self.scale
         x_embed = x_embed / (x_embed[:, :, -1:] + self.eps) * self.scale
         dim_t = torch.arange(self.hidden_dim, dtype=torch.float32, device=device)
@@ -218,7 +218,7 @@ class PositionalEncodingFourier(nn.Module):
         pos_y = torch.stack([pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()], dim=4).flatten(3)
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
         pos = self.token_projection(pos)
-        return pos.repeat(B, 1, 1, 1)  # (B, C, H, W)
+        return pos.repeat(batch_size, 1, 1, 1)  # (batch_size, C, height, width)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -296,17 +296,21 @@ class SEMlp(nn.Module):
             self.relu = nn.ReLU(inplace=True)
         self.se = SqueezeExcite(out_features, se_ratio=0.25) if use_se else nn.Identity()
 
-    def forward(self, x, H, W):
-        B, N, C = x.shape
+    def forward(self, x, height, width):
+        batch_size, N, C = x.shape
         x = self.fc1(x)
         if self.linear:
             x = self.relu(x)
         # import pdb; pdb.set_trace()
-        x = self.drop(self.weight * self.dwconv(x, H, W)) + x
+        x = self.drop(self.weight * self.dwconv(x, height, width)) + x
         x = self.fc2(x)
         x = self.drop(x)
-        x = self.se(x.permute(0, 2, 1).reshape(B, C, H, W)).reshape(B, C, N).permute(0, 2, 1)
-        return x, H, W
+        x = (
+            self.se(x.permute(0, 2, 1).reshape(batch_size, C, height, width))
+            .reshape(batch_size, C, N)
+            .permute(0, 2, 1)
+        )
+        return x, height, width
 
 
 class Mlp(nn.Module):
@@ -332,11 +336,11 @@ class Mlp(nn.Module):
         if self.linear:
             self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, x, H, W):
+    def forward(self, x, height, width):
         x = self.fc1(x)
         if self.linear:
             x = self.relu(x)
-        x = self.drop(self.weight * self.dwconv(x, H, W)) + x
+        x = self.drop(self.weight * self.dwconv(x, height, width)) + x
         x = self.fc2(x)
         x = self.drop(x)
         return x
@@ -377,8 +381,6 @@ class ConvPatchEmbed(nn.Module):
                 conv3x3(in_chans, hidden_size // 4, 2),
                 act_layer(),
                 conv3x3(hidden_size // 4, hidden_size // 1, 2),
-                # act_layer(),
-                # conv3x3(hidden_size // 2, hidden_size, 2),
             )
         else:
             raise ("For convolutional projection, patch size has to be in [8, 16]")
@@ -386,7 +388,7 @@ class ConvPatchEmbed(nn.Module):
     def forward(self, x, return_feat=False):
         x = self.proj(x)
         Hp, Wp = x.shape[2], x.shape[3]
-        x = x.flatten(2).transpose(1, 2)  # (B, N, C)
+        x = x.flatten(2).transpose(1, 2)  # (batch_size, N, C)
         if return_feat:
             return x, (Hp, Wp), None
         return x, (Hp, Wp)
@@ -416,15 +418,15 @@ class DWConv(nn.Module):
             groups=out_features,
         )
 
-    def forward(self, x, H: int, W: int):
-        B, N, C = x.shape
-        x = x.permute(0, 2, 1).reshape(B, C, H, W)
+    def forward(self, x, height: int, width: int):
+        batch_size, N, C = x.shape
+        x = x.permute(0, 2, 1).reshape(batch_size, C, height, width)
         x = self.conv1(x)
         x = self.act(x)
         x = self.bn(x)
 
         x = self.conv2(x)
-        x = x.reshape(B, C, N).permute(0, 2, 1)
+        x = x.reshape(batch_size, C, N).permute(0, 2, 1)
         return x
 
 
@@ -504,23 +506,31 @@ class ClassAttn(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x, return_attention=False):
-        B, N, C = x.shape
+        batch_size, N, C = x.shape
         q = (
             self.q(x[:, 0])
             .unsqueeze(1)
-            .reshape(B, 1, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, 1, self.num_attention_heads, C // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
-        k = self.k(x).reshape(B, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
+        k = (
+            self.k(x)
+            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .permute(0, 2, 1, 3)
+        )
 
         q = q * self.scale
-        v = self.v(x).reshape(B, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
+        v = (
+            self.v(x)
+            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .permute(0, 2, 1, 3)
+        )
 
         attn = q @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x_cls = (attn @ v).transpose(1, 2).reshape(B, 1, C)
+        x_cls = (attn @ v).transpose(1, 2).reshape(batch_size, 1, C)
         x_cls = self.proj(x_cls)
         x_cls = self.proj_drop(x_cls)
 
@@ -637,13 +647,17 @@ class TokenMixing(nn.Module):
         self.linear = linear
         # self.sr_ratio = sr_ratio
 
-    def forward(self, x, H, W, atten=None, return_attention=False):
-        B, N, C = x.shape
-        q = self.q(x).reshape(B, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
+    def forward(self, x, height, width, atten=None, return_attention=False):
+        batch_size, N, C = x.shape
+        q = (
+            self.q(x)
+            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .permute(0, 2, 1, 3)
+        )
 
         kv = (
             self.kv(x)
-            .reshape(B, -1, 2, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, -1, 2, self.num_attention_heads, C // self.num_attention_heads)
             .permute(2, 0, 3, 1, 4)
         )
 
@@ -651,7 +665,7 @@ class TokenMixing(nn.Module):
         attn = q * self.scale @ k.transpose(-2, -1)  # * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = (attn @ v).transpose(1, 2).reshape(batch_size, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn
@@ -684,7 +698,7 @@ class HybridEmbed(nn.Module):
                 training = backbone.training
                 if training:
                     backbone.eval()
-                o = self.backbone.forward_features(torch.zeros(1, in_chans, img_size[0], img_size[1]))
+                o = self.backbone(torch.zeros(1, in_chans, img_size[0], img_size[1]))
                 if isinstance(o, (list, tuple)):
                     o = o[-1]  # last feature if backbone outputs list/tuple of features
                 feature_size = o.shape[-2:]
@@ -705,15 +719,15 @@ class HybridEmbed(nn.Module):
         self.proj = nn.Conv2d(feature_dim, hidden_size, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x, return_feat=False):
-        x, out_list = self.backbone.forward_features(x, return_feat=return_feat)
-        B, C, H, W = x.shape
+        x, out_list = self.backbone(x, return_feat=return_feat)
+        batch_size, C, height, width = x.shape
         if isinstance(x, (list, tuple)):
             x = x[-1]  # last feature if backbone outputs list/tuple of features
         x = self.proj(x).flatten(2).transpose(1, 2)
         if return_feat:
-            return x, (H // self.patch_size[0], W // self.patch_size[1]), out_list
+            return x, (height // self.patch_size[0], width // self.patch_size[1]), out_list
         else:
-            return x, (H // self.patch_size[0], W // self.patch_size[1])
+            return x, (height // self.patch_size[0], width // self.patch_size[1])
 
 
 class ChannelProcessing(nn.Module):
@@ -767,26 +781,30 @@ class ChannelProcessing(nn.Module):
         attn = torch.sigmoid(q @ k)
         return attn * self.temperature
 
-    def forward(self, x, H, W, atten=None):
-        B, N, C = x.shape
-        v = x.reshape(B, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
+    def forward(self, x, height, width, atten=None):
+        batch_size, N, C = x.shape
+        v = x.reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
 
-        q = self.q(x).reshape(B, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
-        k = x.reshape(B, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
+        q = (
+            self.q(x)
+            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .permute(0, 2, 1, 3)
+        )
+        k = x.reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
 
         attn = self._gen_attn(q, k)
         attn = self.attn_drop(attn)
 
         Bv, Hd, Nv, Cv = v.shape
         v = (
-            self.norm_v(self.mlp_v(v.transpose(1, 2).reshape(Bv, Nv, Hd * Cv), H, W))
+            self.norm_v(self.mlp_v(v.transpose(1, 2).reshape(Bv, Nv, Hd * Cv), height, width))
             .reshape(Bv, Nv, Hd, Cv)
             .transpose(1, 2)
         )
 
         repeat_time = N // attn.shape[-1]
         attn = attn.repeat_interleave(repeat_time, dim=-1) if attn.shape[-1] > 1 else attn
-        x = (attn * v.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(B, N, C)
+        x = (attn * v.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, N, C)
         return x, (attn * v.transpose(-1, -2)).transpose(-1, -2)  # attn
 
     @torch.jit.ignore
@@ -902,11 +920,8 @@ class FANBlock(nn.Module):
         self.weight2 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
 
         self.downsample = downsample
-        # self.H = None
-        # self.W = None
 
     def forward(self, x, Hp, Wp, attn=None, return_attention=False):
-        # H, W = self.H, self.W
 
         x_new, attn_s = self.attn(self.norm1(x), Hp, Wp)
         x = x + self.drop_path(self.weight1 * x_new)
@@ -918,7 +933,6 @@ class FANBlock(nn.Module):
 
         if self.downsample is not None:
             x, Hp, Wp = self.downsample(x, Hp, Wp)
-        # self.H, self.W = H, W
         return x, Hp, Wp, attn_s
 
 
@@ -932,8 +946,8 @@ class OverlapPatchEmbed(nn.Module):
 
         self.img_size = img_size
         self.patch_size = patch_size
-        self.H, self.W = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
-        self.num_patches = self.H * self.W
+        self.height, self.width = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
+        self.num_patches = self.height * self.width
         self.proj = nn.Conv2d(
             in_chans,
             hidden_size,
@@ -943,16 +957,16 @@ class OverlapPatchEmbed(nn.Module):
         )
         self.norm = nn.LayerNorm(hidden_size)
 
-    def forward(self, x, H, W):
-        B, N, C = x.shape
-        x = x.transpose(-1, -2).reshape(B, C, H, W)
+    def forward(self, x, height, width):
+        batch_size, N, C = x.shape
+        x = x.transpose(-1, -2).reshape(batch_size, C, height, width)
         x = self.proj(x)
-        _, _, H, W = x.shape
+        _, _, height, width = x.shape
 
         x = x.flatten(2).transpose(1, 2)
         x = self.norm(x)
 
-        return x, H, W
+        return x, height, width
 
 
 # ConvNext Utils for Hybrid Backbones
@@ -967,7 +981,7 @@ def _is_contiguous(tensor: torch.Tensor) -> bool:
 
 
 class LayerNorm2d(nn.LayerNorm):
-    r"""LayerNorm for channels_first tensors with 2d spatial dimensions (ie N, C, H, W)."""
+    r"""LayerNorm for channels_first tensors with 2d spatial dimensions (ie N, C, height, width)."""
 
     def __init__(self, normalized_shape, eps=1e-6):
         super().__init__(normalized_shape, eps=eps)
@@ -1021,12 +1035,12 @@ class ConvMlp(nn.Module):
 class ConvNeXtBlock(nn.Module):
     """ConvNeXt Block
     There are two equivalent implementations:
-      (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, H, W)
-      (2) DwConv -> Permute to (N, H, W, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
+      (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, height, width)
+      (2) DwConv -> Permute to (N, height, width, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
 
     Unlike the official impl, this one allows choice of 1 or 2, 1x1 conv can be faster with appropriate
     choice of LayerNorm impl, however as model size increases the tradeoffs appear to change and nn.Linear
-    is a better choice. This was observed with PyTorch 1.10 on 3090 GPU, it could change over time & w/ different HW.
+    is a better choice. This was observed with PyTorch 1.10 on 3090 GPU, it could change over time & width/ different HW.
 
     Args:
         dim (int): Number of input channels.
@@ -1167,24 +1181,23 @@ class ConvNeXt(nn.Module):
         self.drop_rate = drop_rate
         self.feature_info = []
 
-        # NOTE: this stem is a minimal form of ViT PatchEmbed, as used in SwinTransformer w/ patch_size = 4
+        # NOTE: this stem is a minimal form of ViT PatchEmbed, as used in SwinTransformer width/ patch_size = 4
         self.stem = nn.Sequential(
             nn.Conv2d(in_chans, dims[0], kernel_size=patch_size, stride=patch_size),
             norm_layer(dims[0]),
         )
 
-        self.stages = nn.Sequential()
         dp_rates = [x.tolist() for x in torch.linspace(0, drop_path_rate, sum(depths)).split(depths)]
         curr_stride = patch_size
         prev_chs = dims[0]
-        stages = []
+        self.stages = nn.ModuleList()
         # 4 feature resolution stages, each consisting of multiple residual blocks
         for i in range(len(depths)):
             stride = 2 if i > 0 else 1
             # FIXME support dilation / output_stride
             curr_stride *= stride
             out_chs = dims[i]
-            stages.append(
+            self.stages.append(
                 ConvNeXtStage(
                     prev_chs,
                     out_chs,
@@ -1200,27 +1213,16 @@ class ConvNeXt(nn.Module):
             prev_chs = out_chs
             # NOTE feature_info use currently assumes stage 0 == stride 1, rest are stride 2
             self.feature_info += [dict(num_chs=prev_chs, reduction=curr_stride, module=f"stages.{i}")]
-        self.stages = nn.Sequential(*stages)
-
         self.num_features = prev_chs
-        # TODO: Check if any config has norm_pre
-        self.norm_pre = nn.Identity()
-        # DONE: Remove Head
 
-    # TODO: Rename Forward Features
-    def forward_features(self, x, return_feat=False):
+    def forward(self, x, return_feat=False):
         x = self.stem(x)
         out_list = []
-        for i in range(len(self.stages)):
-            x = self.stages[i](x)
+        for stage in self.stages:
+            x = stage(x)
             out_list.append(x)
-        x = self.norm_pre(x)
 
         return x, out_list if return_feat else x
-
-    def forward(self, x):
-        x = self.forward_features(x)
-        return x
 
 
 class FANPreTrainedModel(PreTrainedModel):
@@ -1266,7 +1268,6 @@ FAN_START_DOCSTRING = r"""
             Check out the [`~PreTrainedModel.from_pretrained`] method to load the model weights.
 """
 
-# TODO: Update FAN Inputs Docstring
 # TODO: Create FAN Feature Extractor
 FAN_INPUTS_DOCSTRING = r"""
     Args:
@@ -1378,7 +1379,6 @@ class FANEncoderLayer(FANPreTrainedModel):
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
         norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        # act_layer = config.act_layer or nn.GELU
         act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
 
         downsample = None
@@ -1417,7 +1417,6 @@ class FANEncoderLayer(FANPreTrainedModel):
         return hidden_state, Hp, Wp, attn
 
 
-# TODO: Update Docstring
 class FANEncoder(FANPreTrainedModel):
     def __init__(self, config: FANConfig):
         super().__init__(config)
@@ -1436,9 +1435,7 @@ class FANEncoder(FANPreTrainedModel):
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
         norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        # act_layer = config.act_layer or nn.GELU
         act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
-
         self.blocks = nn.ModuleList([FANEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
         self.num_features = self.hidden_size = channel_dims[-1]
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
@@ -1536,23 +1533,11 @@ class FANEncoder(FANPreTrainedModel):
         )
 
 
-# TODO: Cleanup unused parameters in forward calls
 @add_start_docstrings(
     "The bare FAN Model transformer outputting raw hidden-states without any specific head on top.",
     FAN_START_DOCSTRING,
 )
 class FANModel(FANPreTrainedModel):
-    # TODO: Update  Docstring
-    """
-
-    The model can behave as an encoder (with only self-attention) as well
-    as a decoder, in which case a layer of cross-attention is added between
-    the self-attention layers, following the architecture described in [Attention is
-    all you need](https://arxiv.org/abs/1706.03762) by Ashish Vaswani,
-    Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin.
-
-    """
-
     def __init__(self, config):
         super().__init__(config)
         self.config = config
@@ -1565,14 +1550,6 @@ class FANModel(FANPreTrainedModel):
 
     def get_input_embeddings(self):
         return self.embeddings.patch_embed
-
-    def _prune_heads(self, heads_to_prune):
-        """Prunes heads of the model.
-        heads_to_prune: dict of {layer_num: list of heads to prune in this layer}
-        See base class PreTrainedModel
-        """
-        for layer, heads in heads_to_prune.items():
-            self.encoder.layer[layer].attention.prune_heads(heads)
 
     @add_start_docstrings_to_model_forward(FAN_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
@@ -1639,12 +1616,11 @@ class FANClassificationHead(nn.Module):
         self.head = nn.Linear(num_features, num_labels) if num_labels > 0 else nn.Identity()
 
     def forward(self, x):
-        x = self.norm(x)[:, 0]
+        x = self.norm(x)[:, 0]  # Extracts the First Token
         x = self.head(x)
         return x
 
 
-# TODO: Update Image Classification Docstring
 @add_start_docstrings(
     """
     FAN Model transformer with an image classification head on top (a linear layer on top of the final hidden state of
@@ -1807,13 +1783,14 @@ class FANDecodeHead(FANPreTrainedModel):
             return hidden_state_reshaped
 
         out_index = [4, 7, 11]
+        # TODO: Upsample first 2 states to match expected output
         if is_backbone_hybrid:
             encoder_states = backbone_hidden_states + (
                 reshape_hidden_state(encoder_hidden_states[self.config.out_index]),
                 encoder_hidden_states[-1],
             )
         else:
-            encoder_states = (reshape_hidden_state(encoder_hidden_states[idx]) for idx in out_index) + (
+            encoder_states = tuple(reshape_hidden_state(encoder_hidden_states[idx]) for idx in out_index) + (
                 encoder_hidden_states[-1],
             )
 
@@ -1847,7 +1824,6 @@ class FANDecodeHead(FANPreTrainedModel):
         return logits
 
 
-# TODO: Fix Docstrings
 @add_start_docstrings(
     """FAN Model transformer with an all-MLP decode head on top e.g. for ADE20k, CityScapes.""",
     FAN_START_DOCSTRING,
@@ -1927,13 +1903,6 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
                 )
                 loss_fct = CrossEntropyLoss(ignore_index=self.config.semantic_loss_ignore_index)
                 loss = loss_fct(upsampled_logits, labels)
-
-        # if not return_dict:
-        #     if output_hidden_states:
-        #         output = (logits,) + outputs[1:]
-        #     else:
-        #         output = (logits,) + outputs[2:]
-        #     return ((loss,) + output) if loss is not None else output
 
         if not return_dict:
             return tuple(
