@@ -36,6 +36,8 @@ original_feature_mapping = {
     "num_classes": "num_labels",
     "embed_dim": "hidden_size",
     "act_layer": "hidden_act",
+    "attn_drop_rate": "attention_probs_dropout_prob",
+    "drop_rate": "hidden_dropout_prob",
 }
 # DONE: Rename embed_dim to hidden_size
 # DONE: Rename num_classes to num_labels
@@ -61,73 +63,68 @@ class FANConfig(PretrainedConfig):
             Dimension of the encoder layers and the pooler layer.
         num_hidden_layers (`int`, *optional*, defaults to 12):
             Number of hidden layers in the Transformer encoder.
-        se_mlp (`bool`, defaults to False):
-            Wheter or not to use Squeeze-Excite in the FANEncoder layers MLP.
-        mlp_ratio (`float`, defaults to 4.0):
-            Ratio of the size of the hidden layer compared to the size of the input layer of the Mix FFNs in the
-            encoder blocks.
         num_attention_heads (`int`, *optional*, defaults to 8):
             Number of attention heads for each attention layer in the Transformer encoder.
-        qkv_bias (`bool`, defaults to True):
-            Whether or not to use bias in Query, Key and Value in attention layers.
         depths (`List[int]`, *optional*, defaults to None):
             The number of layers in each encoder block, only applicable when using hybrid backbone (ConvNeXt).
         eta (`float` defatults to 1.0):
             Weight Initialization value for channel importance.
-        use_pos_embed ( `bool`, defaults to True):
-            Wheter or not to use positional_encoding in the embeddings.
+        tokens_norm (`bool`, defaults to True):
+            Whether or not to apply normalization in the Class Attention block.
+        se_mlp (`bool`, defaults to False):
+            Wheter or not to use Squeeze-Excite in the FANEncoder layers MLP.
+        initializer_range (`float`, *optional*, defaults to 0.02):
+            The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
         img_size (`List[int]`, defaults to (224,224)):
             The size of the images being passed to the model.
         num_channels (`int`, defaults to 3):
             Number of channels the input image has.
-        num_labels (`int`, defaults to 1000):
-            Number of classes used to predict, used for ImageClassification and  SemanticSegmentation tasks.
         backbone (`string`, *optional*, defaults to None):
             Wheter or not to use 'hybrid' backbone.
-        segmentation_in_channels (tuple(int), defaults to (128, 256, 480, 480)):
-            Number of channels in each of the hidden features used for Semantic Segmentation.
-        drop_rate (`float`, defaults to 0):
-            Dropout used in MLP.
-        attn_drop_rate (`float`, defaults to 0):
-            Dropout used in Toxen Mixing after attention.
+        use_pos_embed ( `bool`, defaults to True):
+            Wheter or not to use positional_encoding in the embeddings.
+        mlp_ratio (`float`, defaults to 4.0):
+            Ratio of the size of the hidden layer compared to the size of the input layer of the Mix FFNs in the
+            encoder blocks.
+        qkv_bias (`bool`, defaults to True):
+            Whether or not to use bias in Query, Key and Value in attention layers.
+        hidden_dropout_prob (`float`, *optional*, defaults to 0.0):
+            The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler.
+        attention_probs_dropout_prob (`float`, *optional*, defaults to 0.0):
+            The dropout ratio for the attention probabilities.
         drop_path_rate (`float`, defaults to 0):
             Dropout used in Toxen Mixing after MLP.
         decoder_dropout (`float`, defaults to 0.1):
             Dropout used in Decode Head for SemanticSegmentation tasks.
-        tokens_norm (`bool`, defaults to True):
-            Whether or not to apply normalization in the Class Attention block.
-        feat_downsample (`bool`, defaults to ):
-            Whether or not to use a learnable downsample convolution to obtain hidden states for SemanticSegmentation tasks.
-            Only appliable with hybrid backbone.
-        channel_dims (`tuple(int)`, *optional*, defaults to None):
-            List of Input channels for each of the encoder layers.
-            If None it defaults to [config.hidden_size] * config.num_hidden_layers.
-        rounding_mode (`string`, *optional*, defaults to 'floor'):
-            Torch Divison rounding mode used for positional encoding.
-            Should be set to None in Semantic Segmentation tasks to be compatible with original paper implementation.
-        semantic_loss_ignore_index (`int`, *optional*, defaults to -100):
-            The index that is ignored by the loss function of the semantic segmentation model.
-        cls_attn_layers (`int`, defaults to 2):
-            Number of ClassAttentionBlock used.
-            Class Attention Layer as in CaiT https://arxiv.org/abs/2103.17239.
-        intermediate_size (`int`, *optional*, defaults to 3072):
-            Dimension of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder.
         hidden_act (`str` or `function`, *optional*, defaults to `"gelu"`):
             The non-linear activation function (function or string) in the encoder and pooler.
             If string, `"gelu"`, `"relu"`, `"selu"` and `"gelu_new"` are supported.
-        hidden_dropout_prob (`float`, *optional*, defaults to 0.1):
-            The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler.
-        attention_probs_dropout_prob (`float`, *optional*, defaults to 0.1):
-            The dropout ratio for the attention probabilities.
+        cls_attn_layers (`int`, defaults to 2):
+            Number of ClassAttentionBlock used.
+            Class Attention Layer as in CaiT https://arxiv.org/abs/2103.17239.
         hybrid_patch_size (`int`, defaults to 2):
             The patch size used in the hybrid embeddings, when using default backbone.
-        max_position_embeddings (`int`, *optional*, defaults to 512):
-            The maximum sequence length that this model might ever be used with.
-            Typically set this to something large just in case (e.g., 512 or 1024 or 2048).
-        initializer_range (`float`, *optional*, defaults to 0.02):
-            The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
-        layer_norm_eps (`float`, *optional*, defaults to 1e-12):
+        channel_dims (`tuple(int)`, *optional*, defaults to None):
+            List of Input channels for each of the encoder layers.
+            If None it defaults to [config.hidden_size] * config.num_hidden_layers.
+        feat_downsample (`bool`, defaults to ):
+            Whether or not to use a learnable downsample convolution to obtain hidden states for SemanticSegmentation tasks.
+            Only appliable with hybrid backbone.
+        out_index (`int`, *optional*, defaults to -1):
+            Additional Hidden state index position to add to the backbone hidden states and the last hidden state.
+            Only applicable when using hybrid backbone.
+        rounding_mode (`string`, *optional*, defaults to 'floor'):
+            Torch Divison rounding mode used for positional encoding.
+            Should be set to None in Semantic Segmentation tasks to be compatible with original paper implementation.
+        segmentation_in_channels (tuple(int), defaults to (128, 256, 480, 480)):
+            Number of channels in each of the hidden features used for Semantic Segmentation.
+        decoder_hidden_size (`int`, *optional*, defaults to 768):
+            The dimension of the all-MLP decode head for Semantic Segmenatation.
+        semantic_loss_ignore_index (`int`, *optional*, defaults to -100):
+            The index that is ignored by the loss function of the semantic segmentation model.
+        layer_norm_eps (`float`, *optional*, defaults to 1e-6):
             The epsilon used by the layer normalization layers.
+
         Example:
 
     ```python
@@ -161,24 +158,21 @@ class FANConfig(PretrainedConfig):
         use_pos_embed=True,  # HASCOMMENTS
         mlp_ratio=4.0,  # HASCOMMENTS
         qkv_bias=True,  # HASCOMMENTS
-        drop_rate=0.0,  # HASCOMMENTS
-        attn_drop_rate=0.0,  # HASCOMMENTS
+        hidden_dropout_prob=0.0,  # HASCOMMENTS
+        attention_probs_dropout_prob=0.0,  # HASCOMMENTS
         drop_path_rate=0.0,  # HASCOMMENTS
         decoder_dropout=0.1,  # HASCOMMENTS
-        hidden_act="gelu",  # HASCOMMENTS # TODO: Add Documentation Refactor modeling to include ACT2CLS/ACT2FN from activations
-        norm_layer=None,
+        hidden_act="gelu",  # HASCOMMENTS
         cls_attn_layers=2,  # HASCOMMENTS
         hybrid_patch_size=2,  # HASCOMMENTS
         channel_dims=None,  # HASCOMMENTS
         feat_downsample=False,  # HASCOMMENTS
-        out_index=-1,
+        out_index=-1,  # HASCOMMENTS
         rounding_mode="floor",  # HASCOMMENTS
         segmentation_in_channels=[128, 256, 480, 480],  # HASCOMMENTS
-        feature_strides=[4, 8, 16, 32],
-        channels=256,
-        decoder_hidden_size=768,
-        reshape_last_stage=False,
+        decoder_hidden_size=768,  # HASCOMMENTS
         semantic_loss_ignore_index=-100,  # HASCOMMENTS
+        layer_norm_eps=1e-6,  # HASCOMMENTS
         **kwargs,
     ):
 
@@ -197,12 +191,10 @@ class FANConfig(PretrainedConfig):
         self.use_pos_embed = use_pos_embed
         self.mlp_ratio = mlp_ratio
         self.qkv_bias = qkv_bias
-        # TODO: Clean Different Dropout Rates
-        self.drop_rate = drop_rate
-        self.attn_drop_rate = attn_drop_rate
+        self.hidden_dropout_prob = hidden_dropout_prob
+        self.attention_probs_dropout_prob = attention_probs_dropout_prob
         self.drop_path_rate = drop_path_rate
         self.decoder_dropout = decoder_dropout
-        self.norm_layer = norm_layer
         self.hidden_act = hidden_act
         self.cls_attn_layers = cls_attn_layers
         self.hybrid_patch_size = hybrid_patch_size
@@ -211,10 +203,7 @@ class FANConfig(PretrainedConfig):
         self.feat_downsample = feat_downsample
         self.rounding_mode = rounding_mode
         self.segmentation_in_channels = segmentation_in_channels
-        self.feature_strides = feature_strides
-        self.channels = channels
-
         self.decoder_hidden_size = decoder_hidden_size
-        self.reshape_last_stage = reshape_last_stage
         self.semantic_loss_ignore_index = semantic_loss_ignore_index
+        self.layer_norm_eps = layer_norm_eps
         super().__init__(**kwargs)

@@ -218,7 +218,7 @@ class PositionalEncodingFourier(nn.Module):
         pos_y = torch.stack([pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()], dim=4).flatten(3)
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
         pos = self.token_projection(pos)
-        return pos.repeat(batch_size, 1, 1, 1)  # (batch_size, C, height, width)
+        return pos.repeat(batch_size, 1, 1, 1)  # (batch_size, num_channels, height, width)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -227,10 +227,6 @@ def conv3x3(in_planes, out_planes, stride=1):
         nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False),
         nn.BatchNorm2d(out_planes),
     )
-
-
-def sigmoid(x, inplace=False):
-    return x.sigmoid_() if inplace else x.sigmoid()
 
 
 def make_divisible(v, divisor=8, min_value=None):
@@ -249,7 +245,7 @@ class SqueezeExcite(nn.Module):
         se_ratio=0.25,
         reduced_base_chs=None,
         act_layer=nn.ReLU,
-        gate_fn=sigmoid,
+        gate_fn=torch.sigmoid,
         divisor=1,
         **_,
     ):
@@ -297,7 +293,7 @@ class SEMlp(nn.Module):
         self.se = SqueezeExcite(out_features, se_ratio=0.25) if use_se else nn.Identity()
 
     def forward(self, x, height, width):
-        batch_size, N, C = x.shape
+        batch_size, seq_len, num_channels = x.shape
         x = self.fc1(x)
         if self.linear:
             x = self.relu(x)
@@ -306,8 +302,8 @@ class SEMlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         x = (
-            self.se(x.permute(0, 2, 1).reshape(batch_size, C, height, width))
-            .reshape(batch_size, C, N)
+            self.se(x.permute(0, 2, 1).reshape(batch_size, num_channels, height, width))
+            .reshape(batch_size, num_channels, seq_len)
             .permute(0, 2, 1)
         )
         return x, height, width
@@ -383,12 +379,12 @@ class ConvPatchEmbed(nn.Module):
                 conv3x3(hidden_size // 4, hidden_size // 1, 2),
             )
         else:
-            raise ("For convolutional projection, patch size has to be in [8, 16]")
+            raise ValueError(f"For convolutional projection, patch size has to be in [8, 16] not {patch_size}")
 
     def forward(self, x, return_feat=False):
         x = self.proj(x)
         Hp, Wp = x.shape[2], x.shape[3]
-        x = x.flatten(2).transpose(1, 2)  # (batch_size, N, C)
+        x = x.flatten(2).transpose(1, 2)  # (batch_size, seq_len, num_channels)
         if return_feat:
             return x, (Hp, Wp), None
         return x, (Hp, Wp)
@@ -419,14 +415,14 @@ class DWConv(nn.Module):
         )
 
     def forward(self, x, height: int, width: int):
-        batch_size, N, C = x.shape
-        x = x.permute(0, 2, 1).reshape(batch_size, C, height, width)
+        batch_size, seq_len, num_channels = x.shape
+        x = x.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
         x = self.conv1(x)
         x = self.act(x)
         x = self.bn(x)
 
         x = self.conv2(x)
-        x = x.reshape(batch_size, C, N).permute(0, 2, 1)
+        x = x.reshape(batch_size, num_channels, seq_len).permute(0, 2, 1)
         return x
 
 
@@ -506,23 +502,23 @@ class ClassAttn(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x, return_attention=False):
-        batch_size, N, C = x.shape
+        batch_size, seq_len, num_channels = x.shape
         q = (
             self.q(x[:, 0])
             .unsqueeze(1)
-            .reshape(batch_size, 1, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, 1, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
         k = (
             self.k(x)
-            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
         q = q * self.scale
         v = (
             self.v(x)
-            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
@@ -530,7 +526,7 @@ class ClassAttn(nn.Module):
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x_cls = (attn @ v).transpose(1, 2).reshape(batch_size, 1, C)
+        x_cls = (attn @ v).transpose(1, 2).reshape(batch_size, 1, num_channels)
         x_cls = self.proj(x_cls)
         x_cls = self.proj_drop(x_cls)
 
@@ -648,16 +644,16 @@ class TokenMixing(nn.Module):
         # self.sr_ratio = sr_ratio
 
     def forward(self, x, height, width, atten=None, return_attention=False):
-        batch_size, N, C = x.shape
+        batch_size, seq_len, num_channels = x.shape
         q = (
             self.q(x)
-            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
         kv = (
             self.kv(x)
-            .reshape(batch_size, -1, 2, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, -1, 2, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(2, 0, 3, 1, 4)
         )
 
@@ -665,7 +661,7 @@ class TokenMixing(nn.Module):
         attn = q * self.scale @ k.transpose(-2, -1)  # * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-        x = (attn @ v).transpose(1, 2).reshape(batch_size, N, C)
+        x = (attn @ v).transpose(1, 2).reshape(batch_size, seq_len, num_channels)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn
@@ -720,7 +716,7 @@ class HybridEmbed(nn.Module):
 
     def forward(self, x, return_feat=False):
         x, out_list = self.backbone(x, return_feat=return_feat)
-        batch_size, C, height, width = x.shape
+        batch_size, num_channels, height, width = x.shape
         if isinstance(x, (list, tuple)):
             x = x[-1]  # last feature if backbone outputs list/tuple of features
         x = self.proj(x).flatten(2).transpose(1, 2)
@@ -775,22 +771,26 @@ class ChannelProcessing(nn.Module):
 
     def _gen_attn(self, q, k):
         q = q.softmax(-2).transpose(-1, -2)
-        _, _, N, _ = k.shape
-        k = torch.nn.functional.adaptive_avg_pool2d(k.softmax(-2), (N, 1))
+        _, _, seq_len, _ = k.shape
+        k = torch.nn.functional.adaptive_avg_pool2d(k.softmax(-2), (seq_len, 1))
 
         attn = torch.sigmoid(q @ k)
         return attn * self.temperature
 
     def forward(self, x, height, width, atten=None):
-        batch_size, N, C = x.shape
-        v = x.reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
+        batch_size, seq_len, num_channels = x.shape
+        v = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
+            0, 2, 1, 3
+        )
 
         q = (
             self.q(x)
-            .reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads)
+            .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
-        k = x.reshape(batch_size, N, self.num_attention_heads, C // self.num_attention_heads).permute(0, 2, 1, 3)
+        k = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
+            0, 2, 1, 3
+        )
 
         attn = self._gen_attn(q, k)
         attn = self.attn_drop(attn)
@@ -802,9 +802,9 @@ class ChannelProcessing(nn.Module):
             .transpose(1, 2)
         )
 
-        repeat_time = N // attn.shape[-1]
+        repeat_time = seq_len // attn.shape[-1]
         attn = attn.repeat_interleave(repeat_time, dim=-1) if attn.shape[-1] > 1 else attn
-        x = (attn * v.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, N, C)
+        x = (attn * v.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, seq_len, num_channels)
         return x, (attn * v.transpose(-1, -2)).transpose(-1, -2)  # attn
 
     @torch.jit.ignore
@@ -845,6 +845,7 @@ class FANBlock_SE(nn.Module):
             proj_drop=drop,
             drop=drop,
             drop_path=drop_path,
+            act_layer=act_layer,
             # sr_ratio=sr_ratio,
             linear=linear,
             emlp=False,
@@ -895,6 +896,7 @@ class FANBlock(nn.Module):
             num_attention_heads=num_attention_heads,
             qkv_bias=qkv_bias,
             mlp_hidden_dim=int(dim * mlp_ratio),
+            act_layer=act_layer,
             sharpen_attn=sharpen_attn,
             attn_drop=attn_drop,
             proj_drop=drop,
@@ -908,6 +910,7 @@ class FANBlock(nn.Module):
         self.mlp = ChannelProcessing(
             dim,
             num_attention_heads=num_attention_heads,
+            act_layer=act_layer,
             qkv_bias=qkv_bias,
             attn_drop=attn_drop,
             drop_path=drop_path,
@@ -958,8 +961,8 @@ class OverlapPatchEmbed(nn.Module):
         self.norm = nn.LayerNorm(hidden_size)
 
     def forward(self, x, height, width):
-        batch_size, N, C = x.shape
-        x = x.transpose(-1, -2).reshape(batch_size, C, height, width)
+        batch_size, seq_len, num_channels = x.shape
+        x = x.transpose(-1, -2).reshape(batch_size, num_channels, height, width)
         x = self.proj(x)
         _, _, height, width = x.shape
 
@@ -981,7 +984,7 @@ def _is_contiguous(tensor: torch.Tensor) -> bool:
 
 
 class LayerNorm2d(nn.LayerNorm):
-    r"""LayerNorm for channels_first tensors with 2d spatial dimensions (ie N, C, height, width)."""
+    r"""LayerNorm for channels_first tensors with 2d spatial dimensions (ie seq_len, num_channels, height, width)."""
 
     def __init__(self, normalized_shape, eps=1e-6):
         super().__init__(normalized_shape, eps=eps)
@@ -1035,8 +1038,8 @@ class ConvMlp(nn.Module):
 class ConvNeXtBlock(nn.Module):
     """ConvNeXt Block
     There are two equivalent implementations:
-      (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, height, width)
-      (2) DwConv -> Permute to (N, height, width, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
+      (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (seq_len, num_channels, height, width)
+      (2) DwConv -> Permute to (seq_len, height, width, num_channels); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
 
     Unlike the official impl, this one allows choice of 1 or 2, 1x1 conv can be faster with appropriate
     choice of LayerNorm impl, however as model size increases the tradeoffs appear to change and nn.Linear
@@ -1297,10 +1300,10 @@ class FANEmbeddings(FANPreTrainedModel):
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
-        act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
+        act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
 
         if config.backbone == None:
-            self.patch_embed = ConvPatchEmbed(
+            self.patch_embeddings = ConvPatchEmbed(
                 img_size=img_size,
                 patch_size=config.patch_size,
                 in_chans=config.num_channels,
@@ -1314,14 +1317,14 @@ class FANEmbeddings(FANPreTrainedModel):
                 use_head=False,
                 ls_init_value=self.config.initializer_range,
             )
-            self.patch_embed = HybridEmbed(
+            self.patch_embeddings = HybridEmbed(
                 backbone=backbone, patch_size=config.hybrid_patch_size, hidden_size=config.hidden_size
             )
         else:
             raise ValueError(f"{config.backbone} has to be either hybrid or None")
         if config.use_pos_embed:
             self.pos_embed = PositionalEncodingFourier(dim=config.hidden_size, rounding_mode=self.config.rounding_mode)
-        self.pos_drop = nn.Dropout(p=config.drop_rate)
+        self.pos_drop = nn.Dropout(p=config.hidden_dropout_prob)
 
     def forward(
         self,
@@ -1341,12 +1344,12 @@ class FANEmbeddings(FANPreTrainedModel):
         """
         batch_size = pixel_values.shape[0]
         encoder_states = () if output_hidden_states else None
-        if isinstance(self.patch_embed, HybridEmbed):
-            hidden_states, (Hp, Wp), out_list = self.patch_embed(pixel_values, return_feat=True)
+        if isinstance(self.patch_embeddings, HybridEmbed):
+            hidden_states, (Hp, Wp), out_list = self.patch_embeddings(pixel_values, return_feat=True)
             if output_hidden_states:
                 encoder_states = encoder_states + tuple(out_list)
         else:
-            hidden_states, (Hp, Wp) = self.patch_embed(pixel_values)
+            hidden_states, (Hp, Wp) = self.patch_embeddings(pixel_values)
 
         if self.config.use_pos_embed:
             pos_encoding = (
@@ -1378,8 +1381,8 @@ class FANEncoderLayer(FANPreTrainedModel):
         channel_dims = (
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
-        norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
+        norm_layer = partial(nn.LayerNorm, eps=config.layer_norm_eps)
+        act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
 
         downsample = None
 
@@ -1401,9 +1404,9 @@ class FANEncoderLayer(FANPreTrainedModel):
             num_attention_heads=num_attention_heads[index],
             mlp_ratio=config.mlp_ratio,
             qkv_bias=config.qkv_bias,
-            drop=config.drop_rate,
+            drop=config.hidden_dropout_prob,
             # sr_ratio=config.sr_ratio[index], # Unused
-            attn_drop=config.attn_drop_rate,
+            attn_drop=config.attention_probs_dropout_prob,
             drop_path=config.drop_path_rate,
             act_layer=act_layer,
             norm_layer=norm_layer,
@@ -1434,8 +1437,8 @@ class FANEncoder(FANPreTrainedModel):
         channel_dims = (
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
-        norm_layer = config.norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        act_layer = ACT2CLS[config.act_layer] if config.act_layer else nn.GELU
+        norm_layer = partial(nn.LayerNorm, eps=config.layer_norm_eps)
+        act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
         self.blocks = nn.ModuleList([FANEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
         self.num_features = self.hidden_size = channel_dims[-1]
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
@@ -1446,8 +1449,8 @@ class FANEncoder(FANPreTrainedModel):
                     num_attention_heads=num_attention_heads[-1],
                     mlp_ratio=config.mlp_ratio,
                     qkv_bias=config.qkv_bias,
-                    drop=config.drop_rate,
-                    attn_drop=config.attn_drop_rate,
+                    drop=config.hidden_dropout_prob,
+                    attn_drop=config.attention_probs_dropout_prob,
                     act_layer=act_layer,
                     norm_layer=norm_layer,
                     eta=config.eta,
@@ -1549,7 +1552,7 @@ class FANModel(FANPreTrainedModel):
         self.post_init()
 
     def get_input_embeddings(self):
-        return self.embeddings.patch_embed
+        return self.embeddings.patch_embeddings
 
     @add_start_docstrings_to_model_forward(FAN_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
@@ -1637,7 +1640,8 @@ class FANForImageClassification(FANPreTrainedModel):
 
         num_features = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
         # Image clasification head
-        self.head = FANClassificationHead(config.num_labels, num_features, config.norm_layer)
+        norm_layer = partial(nn.LayerNorm, eps=config.layer_norm_eps)
+        self.head = FANClassificationHead(config.num_labels, num_features, norm_layer)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1796,7 +1800,7 @@ class FANDecodeHead(FANPreTrainedModel):
 
         all_hidden_states = ()
         for encoder_hidden_state, mlp in zip(encoder_states, self.linear_c):
-            if self.config.reshape_last_stage is False and encoder_hidden_state.ndim == 3:
+            if encoder_hidden_state.ndim == 3:
                 height = width = int(math.sqrt(encoder_hidden_state.shape[-1]))
                 encoder_hidden_state = (
                     encoder_hidden_state.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
@@ -1847,7 +1851,6 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = True,
     ) -> Union[Tuple, SemanticSegmenterOutput]:
-        # TODO: Update Docstring
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, height, width)`, *optional*):
             Ground truth semantic segmentation maps for computing the loss. Indices should be in `[0, ...,
