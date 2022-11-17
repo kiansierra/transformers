@@ -43,7 +43,6 @@ from .utils import (
     logging,
 )
 
-
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
@@ -856,10 +855,8 @@ else:
             "FAN_PRETRAINED_MODEL_ARCHIVE_LIST",
             "FANForImageClassification",
             "FANForSemanticSegmentation",
-            "FANLayer",
             "FANModel",
             "FANPreTrainedModel",
-            "load_tf_weights_in_fan",
         ]
     )
     _import_structure["models.roc_bert"].extend(
@@ -3370,7 +3367,7 @@ if TYPE_CHECKING:
     from .models.encoder_decoder import EncoderDecoderConfig
     from .models.ernie import ERNIE_PRETRAINED_CONFIG_ARCHIVE_MAP, ErnieConfig
     from .models.esm import ESM_PRETRAINED_CONFIG_ARCHIVE_MAP, EsmConfig, EsmTokenizer
-    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANTokenizer
+    from .models.fan import FAN_PRETRAINED_CONFIG_ARCHIVE_MAP, FANConfig, FANFeatureExtractor
     from .models.flaubert import FLAUBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, FlaubertConfig, FlaubertTokenizer
     from .models.flava import (
         FLAVA_PRETRAINED_CONFIG_ARCHIVE_MAP,
@@ -3724,7 +3721,6 @@ if TYPE_CHECKING:
         from .models.distilbert import DistilBertTokenizerFast
         from .models.dpr import DPRContextEncoderTokenizerFast, DPRQuestionEncoderTokenizerFast, DPRReaderTokenizerFast
         from .models.electra import ElectraTokenizerFast
-        from .models.fan import FANTokenizerFast
         from .models.fnet import FNetTokenizerFast
         from .models.funnel import FunnelTokenizerFast
         from .models.gpt2 import GPT2TokenizerFast
