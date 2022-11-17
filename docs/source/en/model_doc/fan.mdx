@@ -1,0 +1,78 @@
+<!--Copyright 2022 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+-->
+
+# FAN
+
+## Overview
+
+The FAN model was proposed in [Understanding The Robustness in Vision Transformers](https://arxiv.org/pdf/2204.12451.pdf)  by Daquan Zhou, Zhiding Yu, Enze Xie,
+Chaowei Xiao, Anima Anandkumar, Jiashi Feng, Jose M. Alvarez. Since the introduction of [Vision Transformer (ViT)](vit) introduced in [Dosovitskiy et al., 2020](https://arxiv.org/abs/2010.11929),
+they've achieved great performance in many visual tasks. These self-attention models were outperforming ConvNets on corruption robustness as per ([Bai et al., 2021](https://arxiv.org/pdf/2111.05464.pdf); [Xie et al., 2021](https://arxiv.org/pdf/2105.15203.pdf); [Paul & Chen, 2022](https://arxiv.org/pdf/2105.07581.pdf); [Naseer et al., 2021](https://arxiv.org/pdf/2105.10497.pdf)),
+which was attributed to their designs, this was later challenged by the introduction of [ConvNeXt](https://arxiv.org/pdf/2201.03545.pdf) where a model built from convolution modules without self-attention competed favorably against ViT in generalization and robustness.
+This paper aims to answer the above question regarding the performance of ConvNeXt and ViT, while introducing a novel attention channel processing design.
+
+
+The abstract from the paper is the following:
+
+Recent studies show that Vision Transformers
+(ViTs) exhibit strong robustness against various
+corruptions. Although this property is partly attributed to the self-attention mechanism, there
+is still a lack of systematic understanding. In
+this paper, we examine the role of self-attention
+in learning robust representations. Our study
+is motivated by the intriguing properties of the
+emerging visual grouping in Vision Transformers,
+which indicates that self-attention may promote
+robustness through improved mid-level representations. We further propose a family of fully attentional networks (FANs) that strengthen this
+capability by incorporating an attentional channel
+processing design. We validate the design comprehensively on various hierarchical backbones.
+Our model achieves a state-of-the-art 87.1% accuracy and 35.8% mCE on ImageNet-1k and
+ImageNet-C with 76.8M parameters. We also
+demonstrate state-of-the-art accuracy and robustness in two downstream tasks: semantic segmentation and object detection. Code will be available
+at https://github.com/NVlabs/FAN.
+
+Tips:
+
+- In order to obtain an identical forward pass to that of the original repository for the task of Semantic segmentation, the config attribute rounding_mode must be set to None.
+  Since the positional encoding for image classification uses a floor rounding_mode as can be seen [here](https://github.com/NVlabs/FAN/blob/master/models/fan.py), while for semantic segmentation
+  the same operation doesn't define rounding_mode explicitly as can be seen [here](https://github.com/NVlabs/FAN/blob/master/segmentation/mmseg/models/backbones/fan.py)
+
+This model was contributed by [ksmcg](<https://huggingface.co/ksmcg). The original code can be found [here](https://github.com/NVlabs/FAN).
+
+## FANConfig
+
+[[autodoc]] FANConfig
+
+
+## FANFeatureExtractor
+
+[[autodoc]] FANFeatureExtractor
+    - __call__
+
+
+## FANModel
+
+[[autodoc]] FANModel
+    - forward
+
+
+## FANForImageClassification
+
+[[autodoc]] FANForImageClassification
+    - forward
+
+
+## FANForSemanticSegmentation
+
+[[autodoc]] FANForSemanticSegmentation
+    - forward
+
