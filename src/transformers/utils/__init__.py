@@ -113,6 +113,7 @@ from .import_utils import (
     is_kenlm_available,
     is_librosa_available,
     is_more_itertools_available,
+    is_natten_available,
     is_ninja_available,
     is_onnx_available,
     is_pandas_available,
@@ -177,6 +178,7 @@ SAFE_WEIGHTS_INDEX_NAME = "model.safetensors.index.json"
 CONFIG_NAME = "config.json"
 FEATURE_EXTRACTOR_NAME = "preprocessor_config.json"
 IMAGE_PROCESSOR_NAME = FEATURE_EXTRACTOR_NAME
+GENERATION_CONFIG_NAME = "generation_config.json"
 MODEL_CARD_NAME = "modelcard.json"
 
 SENTENCEPIECE_UNDERLINE = "▁"
