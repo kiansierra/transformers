@@ -162,7 +162,7 @@ class FANImageClassifierOutput(ModelOutput):
 
 # BELOW: utilities copied from
 # https://github.com/NVlabs/FAN/blob/master/models/fan.py
-class PositionalEncodingFourier(nn.Module):
+class FANPositionalEncodingFourier(nn.Module):
     """
     Positional encoding relying on a fourier kernel matching the one used in the "Attention is all of Need" paper.
     """
@@ -213,7 +213,7 @@ def make_divisible(v, divisor=8, min_value=None):
     return new_v
 
 
-class SqueezeExcite(nn.Module):
+class FANSqueezeExcite(nn.Module):
     def __init__(
         self,
         in_chs,
@@ -224,7 +224,7 @@ class SqueezeExcite(nn.Module):
         divisor=1,
         **_,
     ):
-        super(SqueezeExcite, self).__init__()
+        super(FANSqueezeExcite, self).__init__()
         self.gate_fn = gate_fn
         reduced_chs = make_divisible((reduced_base_chs or in_chs) * se_ratio, divisor)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
@@ -241,7 +241,7 @@ class SqueezeExcite(nn.Module):
         return x
 
 
-class SEMlp(nn.Module):
+class FANSqueezeExciteMLP(nn.Module):
     def __init__(
         self,
         in_features,
@@ -256,8 +256,7 @@ class SEMlp(nn.Module):
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
-        # self.dwconv = DWConv(hidden_features)
-        self.dwconv = DWConv(hidden_features)
+        self.dwconv = FANDWConv(hidden_features)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
@@ -265,7 +264,7 @@ class SEMlp(nn.Module):
         self.linear = linear
         if self.linear:
             self.relu = nn.ReLU(inplace=True)
-        self.se = SqueezeExcite(out_features, se_ratio=0.25) if use_se else nn.Identity()
+        self.se = FANSqueezeExcite(out_features, se_ratio=0.25) if use_se else nn.Identity()
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
@@ -284,7 +283,7 @@ class SEMlp(nn.Module):
         return x, height, width
 
 
-class Mlp(nn.Module):
+class FANMlp(nn.Module):
     def __init__(
         self,
         in_features,
@@ -298,7 +297,7 @@ class Mlp(nn.Module):
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = DWConv(hidden_features)
+        self.dwconv = FANDWConv(hidden_features)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
@@ -317,7 +316,7 @@ class Mlp(nn.Module):
         return x
 
 
-class ConvPatchEmbed(nn.Module):
+class FANConvPatchEmbed(nn.Module):
     """Image to Patch Embedding using multiple convolutional layers"""
 
     def __init__(self, img_size=224, patch_size=16, in_chans=3, hidden_size=768, act_layer=nn.GELU):
@@ -365,7 +364,7 @@ class ConvPatchEmbed(nn.Module):
         return x, (Hp, Wp)
 
 
-class DWConv(nn.Module):
+class FANDWConv(nn.Module):
     def __init__(self, in_features, out_features=None, act_layer=nn.GELU, kernel_size=3):
         super().__init__()
         out_features = out_features or in_features
@@ -421,11 +420,11 @@ def drop_path(x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: 
     return x * random_tensor
 
 
-class DropPath(nn.Module):
+class FANDropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks)."""
 
     def __init__(self, drop_prob=None, scale_by_keep=True):
-        super(DropPath, self).__init__()
+        super(FANDropPath, self).__init__()
         self.drop_prob = drop_prob
         self.scale_by_keep = scale_by_keep
 
@@ -434,7 +433,7 @@ class DropPath(nn.Module):
 
 
 # Copied from timm.models.layers.mlp
-class MlpOri(nn.Module):
+class FANMlpOri(nn.Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.0):
@@ -459,7 +458,7 @@ class MlpOri(nn.Module):
 
 
 # Copied from timm.models.cait
-class ClassAttn(nn.Module):
+class FANClassAttn(nn.Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     # with slight modifications to do CA
     def __init__(self, dim, num_attention_heads=8, qkv_bias=False, attn_drop=0.0, proj_drop=0.0):
@@ -509,7 +508,7 @@ class ClassAttn(nn.Module):
         return x_cls
 
 
-class ClassAttentionBlock(nn.Module):
+class FANClassAttentionBlock(nn.Module):
     """Class Attention Layer as in CaiT https://arxiv.org/abs/2103.17239"""
 
     def __init__(
@@ -529,7 +528,7 @@ class ClassAttentionBlock(nn.Module):
         super().__init__()
         self.norm1 = norm_layer(dim)
 
-        self.attn = ClassAttn(
+        self.attn = FANClassAttn(
             dim,
             num_attention_heads=num_attention_heads,
             qkv_bias=qkv_bias,
@@ -537,9 +536,9 @@ class ClassAttentionBlock(nn.Module):
             proj_drop=drop,
         )
 
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = norm_layer(dim)
-        self.mlp = MlpOri(
+        self.mlp = FANMlpOri(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
             act_layer=act_layer,
@@ -575,7 +574,7 @@ class ClassAttentionBlock(nn.Module):
         return x
 
 
-class TokenMixing(nn.Module):
+class FANTokenMixing(nn.Module):
     def __init__(
         self,
         dim,
@@ -641,7 +640,7 @@ class TokenMixing(nn.Module):
         return x, attn
 
 
-class HybridEmbed(nn.Module):
+class FANHybridEmbed(nn.Module):
     """CNN Feature Map Embedding
     Extract feature map from CNN, flatten, project to embedding dim.
     """
@@ -700,7 +699,7 @@ class HybridEmbed(nn.Module):
             return x, (height // self.patch_size[0], width // self.patch_size[1])
 
 
-class ChannelProcessing(nn.Module):
+class FANChannelProcessing(nn.Module):
     def __init__(
         self,
         dim,
@@ -729,8 +728,8 @@ class ChannelProcessing(nn.Module):
         self.cha_sr_ratio = cha_sr_ratio if num_attention_heads > 1 else 1
 
         # config of mlp for v processing
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.mlp_v = Mlp(
+        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.mlp_v = FANMlp(
             in_features=dim // self.cha_sr_ratio,
             hidden_features=mlp_hidden_dim,
             act_layer=act_layer,
@@ -809,7 +808,7 @@ class FANBlock_SE(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = TokenMixing(
+        self.attn = FANTokenMixing(
             dim,
             num_attention_heads=num_attention_heads,
             qkv_bias=qkv_bias,
@@ -824,10 +823,10 @@ class FANBlock_SE(nn.Module):
             linear=linear,
             emlp=False,
         )
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
-        self.mlp = SEMlp(
+        self.mlp = FANSqueezeExciteMLP(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
             act_layer=act_layer,
@@ -865,7 +864,7 @@ class FANBlock(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = TokenMixing(
+        self.attn = FANTokenMixing(
             dim,
             num_attention_heads=num_attention_heads,
             qkv_bias=qkv_bias,
@@ -878,10 +877,10 @@ class FANBlock(nn.Module):
             drop_path=drop_path,
             # sr_ratio=sr_ratio,
         )
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
-        self.mlp = ChannelProcessing(
+        self.mlp = FANChannelProcessing(
             dim,
             num_attention_heads=num_attention_heads,
             act_layer=act_layer,
@@ -913,7 +912,7 @@ class FANBlock(nn.Module):
         return x, Hp, Wp, attn_s
 
 
-class OverlapPatchEmbed(nn.Module):
+class FANOverlapPatchEmbed(nn.Module):
     """Image to Patch Embedding"""
 
     def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768):
@@ -979,7 +978,7 @@ class LayerNorm2d(nn.LayerNorm):
             return x
 
 
-class ConvMlp(nn.Module):
+class FANConvMlp(nn.Module):
     """MLP using 1x1 convs that keeps spatial dims"""
 
     def __init__(
@@ -1038,13 +1037,13 @@ class ConvNeXtBlock(nn.Module):
         super().__init__()
         if not norm_layer:
             norm_layer = partial(LayerNorm2d, eps=1e-6) if conv_mlp else partial(nn.LayerNorm, eps=1e-6)
-        mlp_layer = ConvMlp if conv_mlp else Mlp
+        mlp_layer = FANConvMlp if conv_mlp else FANMlp
         self.use_conv_mlp = conv_mlp
         self.conv_dw = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
         self.norm = norm_layer(dim)
         self.mlp = mlp_layer(dim, int(mlp_ratio * dim), act_layer=nn.GELU)
         self.weight = nn.Parameter(ls_init_value * torch.ones(dim)) if ls_init_value > 0 else None
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         # Added This initialization to pass initialization Test
         self.weight.data = nn.init.trunc_normal_(
             self.weight.data, std=ls_init_value, a=-2 * ls_init_value, b=2 * ls_init_value
@@ -1276,7 +1275,7 @@ class FANEmbeddings(nn.Module):
         act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
 
         if config.backbone is None:
-            self.patch_embeddings = ConvPatchEmbed(
+            self.patch_embeddings = FANConvPatchEmbed(
                 img_size=img_size,
                 patch_size=config.patch_size,
                 in_chans=config.num_channels,
@@ -1290,13 +1289,13 @@ class FANEmbeddings(nn.Module):
                 use_head=False,
                 ls_init_value=self.config.initializer_range,
             )
-            self.patch_embeddings = HybridEmbed(
+            self.patch_embeddings = FANHybridEmbed(
                 backbone=backbone, patch_size=config.hybrid_patch_size, hidden_size=config.hidden_size
             )
         else:
             raise ValueError(f"{config.backbone} has to be either hybrid or None")
         if config.use_pos_embed:
-            self.pos_embed = PositionalEncodingFourier(dim=config.hidden_size, rounding_mode=self.config.rounding_mode)
+            self.pos_embed = FANPositionalEncodingFourier(dim=config.hidden_size, rounding_mode=self.config.rounding_mode)
         self.pos_drop = nn.Dropout(p=config.hidden_dropout_prob)
 
     def forward(
@@ -1318,7 +1317,7 @@ class FANEmbeddings(nn.Module):
         """
         batch_size = pixel_values.shape[0]
         encoder_states = () if output_hidden_states else None
-        if isinstance(self.patch_embeddings, HybridEmbed):
+        if isinstance(self.patch_embeddings, FANHybridEmbed):
             hidden_states, (Hp, Wp), out_list = self.patch_embeddings(pixel_values, return_feat=True)
             if output_hidden_states:
                 encoder_states = encoder_states + tuple(out_list)
@@ -1366,7 +1365,7 @@ class FANEncoderLayer(nn.Module):
         else:
             build_block = FANBlock
         if index < config.num_hidden_layers - 1 and channel_dims[index] != channel_dims[index + 1]:
-            downsample = OverlapPatchEmbed(
+            downsample = FANOverlapPatchEmbed(
                 img_size=img_size,
                 patch_size=3,
                 stride=2,
@@ -1420,7 +1419,7 @@ class FANEncoder(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
         self.cls_attn_blocks = nn.ModuleList(
             [
-                ClassAttentionBlock(
+                FANClassAttentionBlock(
                     dim=channel_dims[-1],
                     num_attention_heads=num_attention_heads[-1],
                     mlp_ratio=config.mlp_ratio,
