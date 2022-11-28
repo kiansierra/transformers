@@ -1267,7 +1267,7 @@ class FANEmbeddings(nn.Module):
         super().__init__()
         self.config = config
 
-        img_size = config.img_size if isinstance(img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
+        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
@@ -1399,7 +1399,7 @@ class FANEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.gradient_checkpointing = False
-        img_size = config.img_size if isinstance(img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
+        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
