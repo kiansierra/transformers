@@ -436,17 +436,17 @@ class FANDropPath(nn.Module):
 class FANMlpOri(nn.Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.0):
+    def __init__(self, config:FANConfig):
         super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-        drop_probs = drop if isinstance(drop, collections.abc.Iterable) else (drop, drop)
+        self.config = config
+        hidden_size = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
+        hidden_features = int(hidden_size * config.mlp_ratio) or hidden_size
 
-        self.fc1 = nn.Linear(in_features, hidden_features)
-        self.act = act_layer()
-        self.drop1 = nn.Dropout(drop_probs[0])
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.drop2 = nn.Dropout(drop_probs[1])
+        self.fc1 = nn.Linear(hidden_size, hidden_features)
+        self.act = ACT2CLS[config.hidden_act]()
+        self.drop1 = nn.Dropout(config.hidden_dropout_prob)
+        self.fc2 = nn.Linear(hidden_features, hidden_size)
+        self.drop2 = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, x):
         x = self.fc1(x)
@@ -461,18 +461,20 @@ class FANMlpOri(nn.Module):
 class FANClassAttn(nn.Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     # with slight modifications to do CA
-    def __init__(self, dim, num_attention_heads=8, qkv_bias=False, attn_drop=0.0, proj_drop=0.0):
+    def __init__(self, config: FANConfig):
         super().__init__()
-        self.num_attention_heads = num_attention_heads
-        head_dim = dim // num_attention_heads
+        self.config = config
+        dim = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
+        self.num_attention_heads =config.num_attention_heads if not isinstance(config.num_attention_heads, list) else config.num_attention_heads[-1]
+        head_dim = dim // self.num_attention_heads
         self.scale = head_dim**-0.5
 
-        self.q = nn.Linear(dim, dim, bias=qkv_bias)
-        self.k = nn.Linear(dim, dim, bias=qkv_bias)
-        self.v = nn.Linear(dim, dim, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
+        self.q = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.k = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.v = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
         self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
+        self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, x, return_attention=False):
         batch_size, seq_len, num_channels = x.shape
@@ -513,44 +515,22 @@ class FANClassAttentionBlock(nn.Module):
 
     def __init__(
         self,
-        dim,
-        num_attention_heads,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        drop=0.0,
-        attn_drop=0.0,
-        drop_path=0.0,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-        eta=1.0,
-        tokens_norm=False,
+        config : FANConfig
     ):
         super().__init__()
-        self.norm1 = norm_layer(dim)
+        self.config = config
+        hidden_size = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
+        self.norm1 = nn.LayerNorm(hidden_size, eps=config.layer_norm_eps)
+        self.attn = FANClassAttn(config)
+        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
+        self.norm2 = nn.LayerNorm(hidden_size, eps=config.layer_norm_eps)
+        self.mlp = FANMlpOri(config)
 
-        self.attn = FANClassAttn(
-            dim,
-            num_attention_heads=num_attention_heads,
-            qkv_bias=qkv_bias,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-        )
-
-        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm2 = norm_layer(dim)
-        self.mlp = FANMlpOri(
-            in_features=dim,
-            hidden_features=int(dim * mlp_ratio),
-            act_layer=act_layer,
-            drop=drop,
-        )
-
-        if eta is not None:  # LayerScale Initialization (no layerscale when None)
-            self.weight1 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
-            self.weight2 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
+        if config.eta is not None:  # LayerScale Initialization (no layerscale when None)
+            self.weight1 = nn.Parameter(config.eta * torch.ones(hidden_size), requires_grad=True)
+            self.weight2 = nn.Parameter(config.eta * torch.ones(hidden_size), requires_grad=True)
         else:
             self.weight1, self.weight2 = 1.0, 1.0
-        self.tokens_norm = tokens_norm
 
     def forward(self, x, return_attention=False):
         x_norm1 = self.norm1(x)
@@ -560,7 +540,7 @@ class FANClassAttentionBlock(nn.Module):
             x1 = self.attn(x_norm1)
         x_attn = torch.cat([x1, x_norm1[:, 1:]], dim=1)
         x = x + self.drop_path(self.weight1 * x_attn)
-        if self.tokens_norm:
+        if self.config.tokens_norm:
             x = self.norm2(x)
         else:
             x = torch.cat([self.norm2(x[:, 0:1]), x[:, 1:]], dim=1)
@@ -1419,18 +1399,7 @@ class FANEncoder(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
         self.cls_attn_blocks = nn.ModuleList(
             [
-                FANClassAttentionBlock(
-                    dim=channel_dims[-1],
-                    num_attention_heads=num_attention_heads[-1],
-                    mlp_ratio=config.mlp_ratio,
-                    qkv_bias=config.qkv_bias,
-                    drop=config.hidden_dropout_prob,
-                    attn_drop=config.attention_probs_dropout_prob,
-                    act_layer=act_layer,
-                    norm_layer=norm_layer,
-                    eta=config.eta,
-                    tokens_norm=config.tokens_norm,
-                )
+                FANClassAttentionBlock(config)
                 for _ in range(config.cls_attn_layers)
             ]
         )
@@ -1609,8 +1578,7 @@ class FANForImageClassification(FANPreTrainedModel):
 
         # FAN encoder model
         self.fan = FANModel(config)
-
-        num_features = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
+        num_features = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
         # Image clasification head
         norm_layer = partial(nn.LayerNorm, eps=config.layer_norm_eps)
         self.head = FANClassificationHead(config.num_labels, num_features, norm_layer)
