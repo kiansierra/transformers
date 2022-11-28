@@ -21,7 +21,6 @@ import collections.abc
 import math
 from dataclasses import dataclass
 from functools import partial
-from itertools import repeat
 from typing import Optional, Tuple, Union
 
 import torch
@@ -58,18 +57,6 @@ FAN_PRETRAINED_MODEL_ARCHIVE_LIST = [
     # See all FAN models at https://huggingface.co/models?filter=fan
 ]
 
-
-# From PyTorch internals
-def _ntuple(n):
-    def parse(x):
-        if isinstance(x, collections.abc.Iterable):
-            return x
-        return tuple(repeat(x, n))
-
-    return parse
-
-
-to_2tuple = _ntuple(2)
 
 
 @dataclass
@@ -335,7 +322,7 @@ class ConvPatchEmbed(nn.Module):
 
     def __init__(self, img_size=224, patch_size=16, in_chans=3, hidden_size=768, act_layer=nn.GELU):
         super().__init__()
-        img_size = to_2tuple(img_size)
+        img_size = img_size if isinstance(img_size, collections.abc.Iterable) else (img_size, img_size)
         num_patches = (img_size[1] // patch_size) * (img_size[0] // patch_size)
         self.img_size = img_size
         self.patch_size = patch_size
@@ -454,7 +441,7 @@ class MlpOri(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
-        drop_probs = to_2tuple(drop)
+        drop_probs = drop if isinstance(drop, collections.abc.Iterable) else (drop, drop)
 
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.act = act_layer()
@@ -670,8 +657,8 @@ class HybridEmbed(nn.Module):
     ):
         super().__init__()
         assert isinstance(backbone, nn.Module)
-        img_size = to_2tuple(img_size)
-        patch_size = to_2tuple(patch_size)
+        img_size = img_size if isinstance(img_size, collections.abc.Iterable) else (img_size, img_size)
+        patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
         self.img_size = img_size
         self.patch_size = patch_size
         self.backbone = backbone
@@ -688,7 +675,7 @@ class HybridEmbed(nn.Module):
                 feature_dim = o.shape[1]
                 backbone.train(training)
         else:
-            feature_size = to_2tuple(feature_size)
+            feature_size = feature_size if isinstance(feature_size, collections.abc.Iterable) else (feature_size, feature_size)
             if hasattr(self.backbone, "feature_info"):
                 feature_dim = self.backbone.feature_info.channels()[-1]
             else:
@@ -931,8 +918,8 @@ class OverlapPatchEmbed(nn.Module):
 
     def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768):
         super().__init__()
-        img_size = to_2tuple(img_size)
-        patch_size = to_2tuple(patch_size)
+        img_size = img_size if isinstance(img_size, collections.abc.Iterable) else (img_size, img_size)
+        patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
 
         self.img_size = img_size
         self.patch_size = patch_size
@@ -1281,7 +1268,7 @@ class FANEmbeddings(nn.Module):
         super().__init__()
         self.config = config
 
-        img_size = to_2tuple(config.img_size)
+        img_size = config.img_size if isinstance(img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
@@ -1356,7 +1343,7 @@ class FANEncoderLayer(nn.Module):
         super().__init__()
         self.config = config
 
-        img_size = to_2tuple(config.img_size)
+        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
@@ -1413,7 +1400,7 @@ class FANEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.gradient_checkpointing = False
-        img_size = to_2tuple(config.img_size)
+        img_size = config.img_size if isinstance(img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
