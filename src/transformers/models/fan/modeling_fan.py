@@ -79,7 +79,7 @@ class FANModelOutput(ModelOutput):
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
         backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` only available when backbone is hybrid (ConvNeXt).
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FANConvNeXt).
     """
 
     last_hidden_state: torch.FloatTensor = None
@@ -119,7 +119,7 @@ class FANSemanticSegmenterOutput(ModelOutput):
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
         backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` only available when backbone is hybrid (ConvNeXt).
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FANConvNeXt).
     """
 
     loss: Optional[torch.FloatTensor] = None
@@ -150,7 +150,7 @@ class FANImageClassifierOutput(ModelOutput):
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
         backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` only available when backbone is hybrid (ConvNeXt).
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FANConvNeXt).
     """
 
     loss: Optional[torch.FloatTensor] = None
@@ -623,14 +623,7 @@ class FANHybridEmbed(nn.Module):
         config: FANConfig
     ):
         super().__init__()
-        backbone = ConvNeXt(
-                config,
-                depths=config.depths,
-                dims=config.hybrid_in_channels,
-                use_head=False,
-                ls_init_value=config.initializer_range,
-            )
-        assert isinstance(backbone, nn.Module)
+        backbone = FANConvNeXt(config)
         img_size = config.img_size 
         patch_size = config.hybrid_patch_size 
         hidden_size = config.hidden_size
@@ -900,8 +893,8 @@ class FANConvMlp(nn.Module):
         return x
 
 
-class ConvNeXtBlock(nn.Module):
-    """ConvNeXt Block
+class FANConvNeXtBlock(nn.Module):
+    """FANConvNeXt Block
     There are two equivalent implementations:
       (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (seq_len, num_channels, height,
       width) (2) DwConv -> Permute to (seq_len, height, width, num_channels); LayerNorm (channels_last) -> Linear ->
@@ -958,7 +951,7 @@ class ConvNeXtBlock(nn.Module):
         return x
 
 
-class ConvNeXtStage(nn.Module):
+class FANConvNeXtStage(nn.Module):
     def __init__(
         self,
         in_chs,
@@ -985,7 +978,7 @@ class ConvNeXtStage(nn.Module):
         dp_rates = dp_rates or [0.0] * depth
         self.blocks = nn.Sequential(
             *[
-                ConvNeXtBlock(
+                FANConvNeXtBlock(
                     dim=out_chs,
                     drop_path=dp_rates[j],
                     ls_init_value=ls_init_value,
@@ -1002,8 +995,8 @@ class ConvNeXtStage(nn.Module):
         return x
 
 
-class ConvNeXt(nn.Module):
-    r"""ConvNeXt
+class FANConvNeXt(nn.Module):
+    r"""FANConvNeXt
         A PyTorch impl of : `A ConvNet for the 2020s` - https://arxiv.org/pdf/2201.03545.pdf
 
     Args:
@@ -1019,67 +1012,43 @@ class ConvNeXt(nn.Module):
 
     def __init__(
         self,
-        config: FANConfig,
-        in_chans=3,
-        num_labels=1000,
-        global_pool="avg",
-        output_stride=32,
-        patch_size=4,
-        depths=(3, 3, 9, 3),
-        dims=(96, 192, 384, 768),
-        ls_init_value=1e-6,
-        conv_mlp=True,
-        use_head=True,
-        head_init_scale=1.0,
-        head_norm_first=False,
-        norm_layer=None,
-        drop_rate=0.0,
-        drop_path_rate=0.0,
+        config: FANConfig
     ):
         super().__init__()
-        assert output_stride == 32
-        
-        if norm_layer is None:
-            norm_layer = partial(LayerNorm2d, eps=1e-6)
-            cl_norm_layer = norm_layer if conv_mlp else partial(nn.LayerNorm, eps=1e-6)
-        else:
-            assert (
-                conv_mlp
-            ), "If a norm_layer is specified, conv MLP must be used so all norm expect rank-4, channels-first input"
-            cl_norm_layer = norm_layer
-
-        self.num_labels = num_labels
-        self.drop_rate = drop_rate
+        depths = config.depths
+        dims = config.hybrid_in_channels
+        ls_init_value=config.initializer_range
+        patch_size = 4
+        norm_layer = partial(LayerNorm2d, eps=config.layer_norm_eps)
         self.feature_info = []
         dims = config.hybrid_in_channels
 
         # NOTE: this stem is a minimal form of ViT PatchEmbed, as used in SwinTransformer width/ patch_size = 4
         self.stem = nn.Sequential(
-            nn.Conv2d(in_chans, dims[0], kernel_size=patch_size, stride=patch_size),
+            nn.Conv2d(config.num_channels, dims[0], kernel_size=patch_size, stride=patch_size),
             norm_layer(dims[0]),
         )
 
-        dp_rates = [x.tolist() for x in torch.linspace(0, drop_path_rate, sum(depths)).split(depths)]
+        dp_rates = [x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(depths)).split(depths)]
         curr_stride = patch_size
         prev_chs = dims[0]
         self.stages = nn.ModuleList()
         # 4 feature resolution stages, each consisting of multiple residual blocks
         for i in range(len(depths)):
             stride = 2 if i > 0 else 1
-            # FIXME support dilation / output_stride
             curr_stride *= stride
             out_chs = dims[i]
             self.stages.append(
-                ConvNeXtStage(
+                FANConvNeXtStage(
                     prev_chs,
                     out_chs,
                     stride=stride,
                     depth=depths[i],
                     dp_rates=dp_rates[i],
                     ls_init_value=ls_init_value,
-                    conv_mlp=conv_mlp,
+                    conv_mlp=True,
                     norm_layer=norm_layer,
-                    cl_norm_layer=cl_norm_layer,
+                    cl_norm_layer=norm_layer,
                 )
             )
             prev_chs = out_chs
