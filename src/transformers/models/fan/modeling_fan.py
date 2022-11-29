@@ -160,6 +160,32 @@ class FANImageClassifierOutput(ModelOutput):
     backbone_hidden_states: Optional[Tuple[torch.FloatTensor]] = None
 
 
+class IdentityMultiple(nn.Module):
+    r"""A placeholder identity operator that is argument-insensitive.
+
+    Args:
+        args: any argument (unused)
+        kwargs: any keyword argument (unused)
+
+    Shape:
+        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+        - Output: :math:`(*)`, same shape as the input.
+
+    Examples::
+
+        >>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False)
+        >>> input = torch.randn(128, 20)
+        >>> output = m(input)
+        >>> print(output.size())
+        torch.Size([128, 20])
+
+    """
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, *args):
+        return args
+
 # BELOW: utilities copied from
 # https://github.com/NVlabs/FAN/blob/master/models/fan.py
 class FANPositionalEncodingFourier(nn.Module):
@@ -249,7 +275,6 @@ class FANSqueezeExciteMLP(nn.Module):
     ):
         super().__init__()
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        # out_features = out_features or in_features
         hidden_features = int(in_features * config.mlp_ratio) 
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
@@ -258,17 +283,11 @@ class FANSqueezeExciteMLP(nn.Module):
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
         self.drop = nn.Dropout(config.hidden_dropout_prob)
-        # self.linear = linear
-        # if self.linear:
-        #     self.relu = nn.ReLU(inplace=True)
         self.se = FANSqueezeExcite(in_features, se_ratio=0.25)
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
         x = self.fc1(x)
-        # if self.linear:
-        #     x = self.relu(x)
-        # import pdb; pdb.set_trace()
         x = self.drop(self.weight * self.dwconv(x, height, width)) + x
         x = self.fc2(x)
         x = self.drop(x)
@@ -733,8 +752,7 @@ class FANBlock_SE(nn.Module):
     def __init__(
         self,
         config: FANConfig,
-        index:int,
-        downsample=None,
+        index:int
     ):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
@@ -760,8 +778,7 @@ class FANBlock(nn.Module):
     def __init__(
         self,
         config: FANConfig,
-        index:int,
-        downsample=None,
+        index:int
     ):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
@@ -772,7 +789,12 @@ class FANBlock(nn.Module):
         self.mlp = FANChannelProcessing(config,index)
         self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
-        self.downsample = downsample
+        create_downsample = (config.channel_dims is not None) and (index < config.num_hidden_layers - 1)
+        create_downsample = create_downsample and config.channel_dims[index] != config.channel_dims[index + 1]
+        if create_downsample:
+            self.downsample = FANOverlapPatchEmbed(config, index)
+        else:
+            self.downsample = IdentityMultiple()
 
     def forward(self, x, Hp, Wp, attn=None, return_attention=False):
 
@@ -784,31 +806,31 @@ class FANBlock(nn.Module):
         if return_attention:
             return x, attn_s
 
-        if self.downsample is not None:
-            x, Hp, Wp = self.downsample(x, Hp, Wp)
+        x, Hp, Wp = self.downsample(x, Hp, Wp)
         return x, Hp, Wp, attn_s
 
 
 class FANOverlapPatchEmbed(nn.Module):
     """Image to Patch Embedding"""
 
-    def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768):
+    def __init__(self, config: FANConfig, index:int, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768):
         super().__init__()
-        img_size = img_size if isinstance(img_size, collections.abc.Iterable) else (img_size, img_size)
-        patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
+        
+        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
+        patch_size = (3,3)
 
         self.img_size = img_size
         self.patch_size = patch_size
         self.height, self.width = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
         self.num_patches = self.height * self.width
         self.proj = nn.Conv2d(
-            in_chans,
-            hidden_size,
+            config.channel_dims[index],
+            config.channel_dims[index+1],
             kernel_size=patch_size,
-            stride=stride,
+            stride=2,
             padding=(patch_size[0] // 2, patch_size[1] // 2),
         )
-        self.norm = nn.LayerNorm(hidden_size)
+        self.norm = nn.LayerNorm(config.channel_dims[index+1])
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
@@ -1224,31 +1246,12 @@ class FANEncoderLayer(nn.Module):
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
-
-        channel_dims = (
-            [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
-        )
-
-        downsample = None
-
         if config.se_mlp:
-            build_block = FANBlock_SE
+            self.block = FANBlock_SE(config=config,index=index)
         else:
-            build_block = FANBlock
-        if index < config.num_hidden_layers - 1 and channel_dims[index] != channel_dims[index + 1]:
-            downsample = FANOverlapPatchEmbed(
-                img_size=img_size,
-                patch_size=3,
-                stride=2,
-                in_chans=channel_dims[index],
-                hidden_size=channel_dims[index + 1],
-            )
+            self.block = FANBlock(config=config,index=index)
 
-        self.block = build_block(
-            config=config,
-            index=index,
-            downsample=downsample,
-        )
+
 
     def forward(self, hidden_state, Hp, Wp):
         hidden_state, Hp, Wp, attn = self.block(hidden_state, Hp, Wp)
