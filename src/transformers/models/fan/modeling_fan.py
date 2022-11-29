@@ -1384,18 +1384,10 @@ class FANEncoder(nn.Module):
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
-        num_attention_heads = (
-            [config.num_attention_heads] * config.num_hidden_layers
-            if not isinstance(config.num_attention_heads, list)
-            else config.num_attention_heads
-        )
         channel_dims = (
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
-        norm_layer = partial(nn.LayerNorm, eps=config.layer_norm_eps)
-        act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
         self.blocks = nn.ModuleList([FANEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
-        self.num_features = self.hidden_size = channel_dims[-1]
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
         self.cls_attn_blocks = nn.ModuleList(
             [
