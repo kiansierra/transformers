@@ -286,30 +286,27 @@ class FANSqueezeExciteMLP(nn.Module):
 class FANMlp(nn.Module):
     def __init__(
         self,
-        in_features,
-        hidden_features=None,
-        out_features=None,
-        act_layer=nn.GELU,
-        drop=0.0,
-        linear=False,
+        config: FANConfig,
+        index:int
     ):
         super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
+        in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
+        # out_features = out_features or in_features
+        hidden_features = int(in_features * config.mlp_ratio) 
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.dwconv = FANDWConv(hidden_features)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
-        self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.drop = nn.Dropout(drop)
-        self.linear = linear
-        if self.linear:
-            self.relu = nn.ReLU(inplace=True)
+        self.act = ACT2CLS[config.hidden_act]()
+        self.fc2 = nn.Linear(hidden_features, in_features)
+        self.drop = nn.Dropout(config.hidden_dropout_prob)
+        # self.linear = linear
+        # if self.linear:
+        #     self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x, height, width):
         x = self.fc1(x)
-        if self.linear:
-            x = self.relu(x)
+        # if self.linear:
+        #     x = self.relu(x)
         x = self.drop(self.weight * self.dwconv(x, height, width)) + x
         x = self.fc2(x)
         x = self.drop(x)
@@ -666,20 +663,12 @@ class FANHybridEmbed(nn.Module):
 class FANChannelProcessing(nn.Module):
     def __init__(
         self,
-        dim,
-        num_attention_heads=8,
-        qkv_bias=False,
-        attn_drop=0.0,
-        linear=False,
-        drop_path=0.0,
-        mlp_hidden_dim=None,
-        act_layer=nn.GELU,
-        drop=None,
-        norm_layer=nn.LayerNorm,
-        cha_sr_ratio=1,
-        # c_head_num=None,
+        config: FANConfig,
+        index:int
     ):
         super().__init__()
+        dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
+        num_attention_heads =  config.num_attention_heads if not isinstance(config.num_attention_heads, list) else config.num_attention_heads[index]
         assert (
             dim % num_attention_heads == 0
         ), f"dim {dim} should be divided by num_attention_heads {num_attention_heads}."
@@ -689,22 +678,16 @@ class FANChannelProcessing(nn.Module):
         self.num_attention_heads = num_attention_heads
         self.temperature = nn.Parameter(torch.ones(num_attention_heads, 1, 1))
 
-        self.cha_sr_ratio = cha_sr_ratio if num_attention_heads > 1 else 1
 
         # config of mlp for v processing
-        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
         self.mlp_v = FANMlp(
-            in_features=dim // self.cha_sr_ratio,
-            hidden_features=mlp_hidden_dim,
-            act_layer=act_layer,
-            drop=drop,
-            linear=linear,
+            config=config,
+            index=index
         )
-        self.norm_v = norm_layer(dim // self.cha_sr_ratio)
-
-        self.q = nn.Linear(dim, dim, bias=qkv_bias)
-
-        self.attn_drop = nn.Dropout(attn_drop)
+        self.norm_v = nn.LayerNorm(dim, eps=config.layer_norm_eps)
+        self.q = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
 
     def _gen_attn(self, q, k):
         q = q.softmax(-2).transpose(-1, -2)
@@ -821,23 +804,10 @@ class FANBlock(nn.Module):
         self.norm1 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
         self.attn = FANTokenMixing(config,index)
         self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
-
         self.norm2 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
-        self.mlp = FANChannelProcessing(
-            dim,
-            num_attention_heads=num_attention_heads,
-            act_layer=act_layer,
-            qkv_bias=qkv_bias,
-            attn_drop=attn_drop,
-            drop_path=drop_path,
-            drop=drop,
-            mlp_hidden_dim=int(dim * mlp_ratio),
-            # c_head_num=c_head_num,
-        )
-
+        self.mlp = FANChannelProcessing(config,index)
         self.weight1 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
-
         self.downsample = downsample
 
     def forward(self, x, Hp, Wp, attn=None, return_attention=False):
