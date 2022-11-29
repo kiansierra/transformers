@@ -332,18 +332,15 @@ class FANMlp(nn.Module):
 class FANConvPatchEmbed(nn.Module):
     """Image to Patch Embedding using multiple convolutional layers"""
 
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, hidden_size=768, act_layer=nn.GELU):
+    def __init__(self, config:FANConfig):
         super().__init__()
-        img_size = img_size if isinstance(img_size, collections.abc.Iterable) else (img_size, img_size)
-        num_patches = (img_size[1] // patch_size) * (img_size[0] // patch_size)
-        self.img_size = img_size
-        self.patch_size = patch_size
+        num_patches = (config.img_size[1] // config.patch_size) * (config.img_size[0] // config.patch_size)
         self.num_patches = num_patches
-        #         import pdb; pdb.set_trace()
-
-        if patch_size == 16:
+        act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
+        hidden_size = config.hidden_size
+        if config.patch_size == 16:
             self.proj = torch.nn.Sequential(
-                conv3x3(in_chans, hidden_size // 8, 2),
+                conv3x3(config.num_channels, hidden_size // 8, 2),
                 act_layer(),
                 conv3x3(hidden_size // 8, hidden_size // 4, 2),
                 act_layer(),
@@ -351,17 +348,17 @@ class FANConvPatchEmbed(nn.Module):
                 act_layer(),
                 conv3x3(hidden_size // 2, hidden_size, 2),
             )
-        elif patch_size == 8:
+        elif config.patch_size == 8:
             self.proj = torch.nn.Sequential(
-                conv3x3(in_chans, hidden_size // 4, 2),
+                conv3x3(config.num_channels, hidden_size // 4, 2),
                 act_layer(),
                 conv3x3(hidden_size // 4, hidden_size // 2, 2),
                 act_layer(),
                 conv3x3(hidden_size // 2, hidden_size, 2),
             )
-        elif patch_size == 4:
+        elif config.patch_size == 4:
             self.proj = torch.nn.Sequential(
-                conv3x3(in_chans, hidden_size // 4, 2),
+                conv3x3(config.num_channels, hidden_size // 4, 2),
                 act_layer(),
                 conv3x3(hidden_size // 4, hidden_size // 1, 2),
             )
@@ -1171,15 +1168,9 @@ class FANEmbeddings(nn.Module):
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
-        act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
-
         if config.backbone is None:
             self.patch_embeddings = FANConvPatchEmbed(
-                img_size=img_size,
-                patch_size=config.patch_size,
-                in_chans=config.num_channels,
-                hidden_size=config.hidden_size,
-                act_layer=act_layer,
+                config
             )
         elif config.backbone == "hybrid":
             backbone = ConvNeXt(
