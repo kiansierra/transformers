@@ -30,7 +30,7 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torch.nn import functional as F
 
 from ...activations import ACT2CLS
-from ...modeling_outputs import ModelOutput, SemanticSegmenterOutput
+from ...modeling_outputs import ModelOutput
 from ...modeling_utils import PreTrainedModel
 from ...utils import (
     add_code_sample_docstrings,
@@ -193,15 +193,14 @@ class FANPositionalEncodingFourier(nn.Module):
     Positional encoding relying on a fourier kernel matching the one used in the "Attention is all of Need" paper.
     """
 
-    def __init__(self, hidden_dim=32, dim=768, temperature=10000, rounding_mode=None):
+    def __init__(self, config:FANConfig):
         super().__init__()
-        self.token_projection = nn.Conv2d(hidden_dim * 2, dim, kernel_size=1)
-        self.scale = 2 * math.pi
-        self.temperature = temperature
-        self.hidden_dim = hidden_dim
-        self.dim = dim
+        self.temperature = 10_000
+        self.hidden_dim = 32
         self.eps = 1e-6
-        self.rounding_mode = rounding_mode  # Uses Floor for Classifier and None for Segmentation
+        self.scale = 2 * math.pi
+        self.token_projection = nn.Conv2d(self.hidden_dim * 2, config.hidden_size, kernel_size=1)
+        self.rounding_mode = config.rounding_mode  # Uses Floor for Classifier and None for Segmentation
         # Segmentation Positional Encoder link https://github.com/NVlabs/FAN/blob/master/segmentation/mmseg/models/backbones/fan.py
         # Classifier Positional Encoder link https://github.com/NVlabs/FAN/blob/master/models/fan.py
 
@@ -1185,7 +1184,7 @@ class FANEmbeddings(nn.Module):
         else:
             raise ValueError(f"{config.backbone} has to be either hybrid or None")
         if config.use_pos_embed:
-            self.pos_embed = FANPositionalEncodingFourier(dim=config.hidden_size, rounding_mode=self.config.rounding_mode)
+            self.pos_embed = FANPositionalEncodingFourier(config)
         self.pos_drop = nn.Dropout(p=config.hidden_dropout_prob)
 
     def forward(
@@ -1460,7 +1459,7 @@ class FANForImageClassification(FANPreTrainedModel):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=True,
-    ):
+    ) -> Union[Tuple, FANImageClassifierOutput]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the image classification/regression loss. Indices should be in `[0, ...,
@@ -1657,7 +1656,7 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = True,
-    ) -> Union[Tuple, SemanticSegmenterOutput]:
+    ) -> Union[Tuple, FANSemanticSegmenterOutput]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, height, width)`, *optional*):
             Ground truth semantic segmentation maps for computing the loss. Indices should be in `[0, ...,
