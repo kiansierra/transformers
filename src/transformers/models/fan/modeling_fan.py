@@ -954,19 +954,18 @@ class FANConvNeXtBlock(nn.Module):
 class FANConvNeXtStage(nn.Module):
     def __init__(
         self,
-        in_chs,
-        out_chs,
-        stride=2,
-        depth=2,
-        dp_rates=None,
-        ls_init_value=1.0,
-        conv_mlp=True,
-        norm_layer=None,
-        cl_norm_layer=None,
-        cross_stage=False,
+        config: FANConfig,
+        index:int
     ):
         super().__init__()
-
+        
+        in_chs = config.hybrid_in_channels[0] if index ==0 else config.hybrid_in_channels[index-1]
+        out_chs = config.hybrid_in_channels[index]
+        stride = 2 if index > 0 else 1
+        depth = config.depths[index]
+        dp_rates = [x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths)).split(config.depths)][index]
+        ls_init_value = config.initializer_range
+        norm_layer = partial(LayerNorm2d, eps=config.layer_norm_eps)
         if in_chs != out_chs or stride > 1:
             self.downsample = nn.Sequential(
                 norm_layer(in_chs),
@@ -982,8 +981,8 @@ class FANConvNeXtStage(nn.Module):
                     dim=out_chs,
                     drop_path=dp_rates[j],
                     ls_init_value=ls_init_value,
-                    conv_mlp=conv_mlp,
-                    norm_layer=norm_layer if conv_mlp else cl_norm_layer,
+                    conv_mlp=True,
+                    norm_layer=norm_layer,
                 )
                 for j in range(depth)
             ]
@@ -1015,46 +1014,18 @@ class FANConvNeXt(nn.Module):
         config: FANConfig
     ):
         super().__init__()
-        depths = config.depths
-        dims = config.hybrid_in_channels
-        ls_init_value=config.initializer_range
         patch_size = 4
-        norm_layer = partial(LayerNorm2d, eps=config.layer_norm_eps)
-        self.feature_info = []
-        dims = config.hybrid_in_channels
-
         # NOTE: this stem is a minimal form of ViT PatchEmbed, as used in SwinTransformer width/ patch_size = 4
         self.stem = nn.Sequential(
-            nn.Conv2d(config.num_channels, dims[0], kernel_size=patch_size, stride=patch_size),
-            norm_layer(dims[0]),
+            nn.Conv2d(config.num_channels, config.hybrid_in_channels[0], kernel_size=patch_size, stride=patch_size),
+            LayerNorm2d(config.hybrid_in_channels[0], eps=config.layer_norm_eps),
         )
 
-        dp_rates = [x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(depths)).split(depths)]
-        curr_stride = patch_size
-        prev_chs = dims[0]
         self.stages = nn.ModuleList()
         # 4 feature resolution stages, each consisting of multiple residual blocks
-        for i in range(len(depths)):
-            stride = 2 if i > 0 else 1
-            curr_stride *= stride
-            out_chs = dims[i]
-            self.stages.append(
-                FANConvNeXtStage(
-                    prev_chs,
-                    out_chs,
-                    stride=stride,
-                    depth=depths[i],
-                    dp_rates=dp_rates[i],
-                    ls_init_value=ls_init_value,
-                    conv_mlp=True,
-                    norm_layer=norm_layer,
-                    cl_norm_layer=norm_layer,
-                )
-            )
-            prev_chs = out_chs
-            # NOTE feature_info use currently assumes stage 0 == stride 1, rest are stride 2
-            self.feature_info += [dict(num_chs=prev_chs, reduction=curr_stride, module=f"stages.{i}")]
-        self.num_features = prev_chs
+        for index in range(len(config.depths)):
+            self.stages.append(FANConvNeXtStage(config,index))
+
 
     def forward(self, x, return_feat=False):
         x = self.stem(x)
