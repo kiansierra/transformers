@@ -102,6 +102,8 @@ class FANConfig(PretrainedConfig):
         rounding_mode (`string`, *optional*, defaults to `'floor'`):
             Torch Divison rounding mode used for positional encoding. Should be set to None in Semantic Segmentation
             tasks to be compatible with original paper implementation.
+        hybrid_in_channels (`List[int]`, *optional*, defaults to `[128,256,512,1024]`):
+            Number of channels in each of the hidden features used for Hybrid backbone.
         segmentation_in_channels (`List[int]`, *optional*, defaults to `[448,448,448,448]`):
             Number of channels in each of the hidden features used for Semantic Segmentation.
         decoder_hidden_size (`int`, *optional*, defaults to 768):
@@ -155,6 +157,7 @@ class FANConfig(PretrainedConfig):
         feat_downsample=False,
         out_index=-1,
         rounding_mode="floor",
+        hybrid_in_channels=[128,256,512,1024],
         segmentation_in_channels=[448, 448, 448, 448],
         decoder_hidden_size=768,
         semantic_loss_ignore_index=-100,
@@ -188,6 +191,7 @@ class FANConfig(PretrainedConfig):
         self.out_index = out_index
         self.feat_downsample = feat_downsample
         self.rounding_mode = rounding_mode
+        self.hybrid_in_channels = hybrid_in_channels
         self.segmentation_in_channels = segmentation_in_channels
         self.decoder_hidden_size = decoder_hidden_size
         self.semantic_loss_ignore_index = semantic_loss_ignore_index
