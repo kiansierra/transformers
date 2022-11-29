@@ -620,38 +620,35 @@ class FANHybridEmbed(nn.Module):
 
     def __init__(
         self,
-        backbone,
-        img_size=224,
-        patch_size=2,
-        feature_size=None,
-        in_chans=3,
-        hidden_size=384,
+        config: FANConfig
     ):
         super().__init__()
+        backbone = ConvNeXt(
+                config,
+                depths=config.depths,
+                dims=config.hybrid_in_channels,
+                use_head=False,
+                ls_init_value=config.initializer_range,
+            )
         assert isinstance(backbone, nn.Module)
-        img_size = img_size if isinstance(img_size, collections.abc.Iterable) else (img_size, img_size)
+        img_size = config.img_size 
+        patch_size = config.hybrid_patch_size 
+        hidden_size = config.hidden_size
         patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
-        self.img_size = img_size
         self.patch_size = patch_size
         self.backbone = backbone
-        if feature_size is None:
-            with torch.no_grad():
-                # NOTE Most reliable way of determining output dims is to run forward pass
-                training = backbone.training
-                if training:
-                    backbone.eval()
-                o = self.backbone(torch.zeros(1, in_chans, img_size[0], img_size[1]))
-                if isinstance(o, (list, tuple)):
-                    o = o[-1]  # last feature if backbone outputs list/tuple of features
-                feature_size = o.shape[-2:]
-                feature_dim = o.shape[1]
-                backbone.train(training)
-        else:
-            feature_size = feature_size if isinstance(feature_size, collections.abc.Iterable) else (feature_size, feature_size)
-            if hasattr(self.backbone, "feature_info"):
-                feature_dim = self.backbone.feature_info.channels()[-1]
-            else:
-                feature_dim = self.backbone.num_features
+        with torch.no_grad():
+            # NOTE Most reliable way of determining output dims is to run forward pass
+            training = backbone.training
+            if training:
+                backbone.eval()
+            o = self.backbone(torch.zeros(1, config.num_channels, img_size[0], img_size[1]))
+            if isinstance(o, (list, tuple)):
+                o = o[-1]  # last feature if backbone outputs list/tuple of features
+            feature_size = o.shape[-2:]
+            feature_dim = o.shape[1]
+            backbone.train(training)
+
         assert feature_size[0] % patch_size[0] == 0 and feature_size[1] % patch_size[1] == 0
         self.grid_size = (
             feature_size[0] // patch_size[0],
@@ -1022,6 +1019,7 @@ class ConvNeXt(nn.Module):
 
     def __init__(
         self,
+        config: FANConfig,
         in_chans=3,
         num_labels=1000,
         global_pool="avg",
@@ -1040,6 +1038,7 @@ class ConvNeXt(nn.Module):
     ):
         super().__init__()
         assert output_stride == 32
+        
         if norm_layer is None:
             norm_layer = partial(LayerNorm2d, eps=1e-6)
             cl_norm_layer = norm_layer if conv_mlp else partial(nn.LayerNorm, eps=1e-6)
@@ -1052,6 +1051,7 @@ class ConvNeXt(nn.Module):
         self.num_labels = num_labels
         self.drop_rate = drop_rate
         self.feature_info = []
+        dims = config.hybrid_in_channels
 
         # NOTE: this stem is a minimal form of ViT PatchEmbed, as used in SwinTransformer width/ patch_size = 4
         self.stem = nn.Sequential(
@@ -1172,15 +1172,7 @@ class FANEmbeddings(nn.Module):
                 config
             )
         elif config.backbone == "hybrid":
-            backbone = ConvNeXt(
-                depths=self.config.depths,
-                dims=self.config.dims,
-                use_head=False,
-                ls_init_value=self.config.initializer_range,
-            )
-            self.patch_embeddings = FANHybridEmbed(
-                backbone=backbone, patch_size=config.hybrid_patch_size, hidden_size=config.hidden_size
-            )
+            self.patch_embeddings = FANHybridEmbed(config)
         else:
             raise ValueError(f"{config.backbone} has to be either hybrid or None")
         if config.use_pos_embed:
