@@ -224,7 +224,7 @@ class FANSqueezeExcite(nn.Module):
         divisor=1,
         **_,
     ):
-        super(FANSqueezeExcite, self).__init__()
+        super().__init__()
         self.gate_fn = gate_fn
         reduced_chs = make_divisible((reduced_base_chs or in_chs) * se_ratio, divisor)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
@@ -418,7 +418,7 @@ class FANDropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks)."""
 
     def __init__(self, drop_prob=None, scale_by_keep=True):
-        super(FANDropPath, self).__init__()
+        super().__init__()
         self.drop_prob = drop_prob
         self.scale_by_keep = scale_by_keep
 
