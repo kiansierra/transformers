@@ -62,18 +62,18 @@ class FANConfig(PretrainedConfig):
             Wheter or not to use Squeeze-Excite in the FANEncoder layers MLP.
         initializer_range (`float`, *optional*, defaults to 0.02):
             The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
-        img_size (`List[int]`, defaults to (224,224)):
+        img_size (`List[int]`, defaults to `[224,224]`):
             The size of the images being passed to the model.
         num_channels (`int`, defaults to 3):
             Number of channels the input image has.
-        backbone (`string`, *optional*, defaults to None):
+        backbone (`string`, *optional*):
             Wheter or not to use 'hybrid' backbone.
-        use_pos_embed ( `bool`, defaults to True):
+        use_pos_embed ( `bool`, defaults to `True`):
             Wheter or not to use positional_encoding in the embeddings.
         mlp_ratio (`float`, defaults to 4.0):
             Ratio of the size of the hidden layer compared to the size of the input layer of the Mix FFNs in the
             encoder blocks.
-        qkv_bias (`bool`, defaults to True):
+        qkv_bias (`bool`, defaults to `True`):
             Whether or not to use bias in Query, Key and Value in attention layers.
         hidden_dropout_prob (`float`, *optional*, defaults to 0.0):
             The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler.
@@ -99,10 +99,10 @@ class FANConfig(PretrainedConfig):
         out_index (`int`, *optional*, defaults to -1):
             Additional Hidden state index position to add to the backbone hidden states and the last hidden state. Only
             applicable when using hybrid backbone.
-        rounding_mode (`string`, *optional*, defaults to 'floor'):
+        rounding_mode (`string`, *optional*, defaults to `'floor'`):
             Torch Divison rounding mode used for positional encoding. Should be set to None in Semantic Segmentation
             tasks to be compatible with original paper implementation.
-        segmentation_in_channels (`List[int]`, defaults to [448,448,448,448]):
+        segmentation_in_channels (`List[int]`, *optional*, defaults to `448,448,448,448]`):
             Number of channels in each of the hidden features used for Semantic Segmentation.
         decoder_hidden_size (`int`, *optional*, defaults to 768):
             The dimension of the all-MLP decode head for Semantic Segmenatation.
