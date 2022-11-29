@@ -1553,11 +1553,11 @@ class FANClassificationHead(nn.Module):
 
     """
 
-    def __init__(self, num_labels, num_features, norm_layer):
+    def __init__(self, config: FANConfig):
         super().__init__()
-        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        self.norm = norm_layer(num_features)
-        self.head = nn.Linear(num_features, num_labels) if num_labels > 0 else nn.Identity()
+        num_features = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
+        self.norm = nn.LayerNorm(num_features, eps=config.layer_norm_eps)
+        self.head = nn.Linear(num_features, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
     def forward(self, x):
         x = self.norm(x)[:, 0]  # Extracts the First Token
@@ -1578,10 +1578,8 @@ class FANForImageClassification(FANPreTrainedModel):
 
         # FAN encoder model
         self.fan = FANModel(config)
-        num_features = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
         # Image clasification head
-        norm_layer = partial(nn.LayerNorm, eps=config.layer_norm_eps)
-        self.head = FANClassificationHead(config.num_labels, num_features, norm_layer)
+        self.head = FANClassificationHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
