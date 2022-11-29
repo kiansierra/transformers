@@ -79,7 +79,7 @@ class FANConfig(PretrainedConfig):
             The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler.
         attention_probs_dropout_prob (`float`, *optional*, defaults to 0.0):
             The dropout ratio for the attention probabilities.
-        drop_path_rate (`float`, defaults to 0):
+        drop_path_rate (`float`, defaults to 0.0):
             Dropout used in Toxen Mixing after MLP.
         decoder_dropout (`float`, defaults to 0.1):
             Dropout used in Decode Head for SemanticSegmentation tasks.
@@ -90,10 +90,10 @@ class FANConfig(PretrainedConfig):
             Number of ClassAttentionBlock used. Class Attention Layer as in CaiT https://arxiv.org/abs/2103.17239.
         hybrid_patch_size (`int`, defaults to 2):
             The patch size used in the hybrid embeddings, when using default backbone.
-        channel_dims (`List[int]`, *optional*, defaults to None):
+        channel_dims (`List[int]`, *optional*):
             List of Input channels for each of the encoder layers. If None it defaults to [config.hidden_size] *
             config.num_hidden_layers.
-        feat_downsample (`bool`, defaults to ):
+        feat_downsample (`bool`, defaults to `False`):
             Whether or not to use a learnable downsample convolution to obtain hidden states for SemanticSegmentation
             tasks. Only appliable with hybrid backbone.
         out_index (`int`, *optional*, defaults to -1):
@@ -102,7 +102,7 @@ class FANConfig(PretrainedConfig):
         rounding_mode (`string`, *optional*, defaults to `'floor'`):
             Torch Divison rounding mode used for positional encoding. Should be set to None in Semantic Segmentation
             tasks to be compatible with original paper implementation.
-        segmentation_in_channels (`List[int]`, *optional*, defaults to `448,448,448,448]`):
+        segmentation_in_channels (`List[int]`, *optional*, defaults to `[448,448,448,448]`):
             Number of channels in each of the hidden features used for Semantic Segmentation.
         decoder_hidden_size (`int`, *optional*, defaults to 768):
             The dimension of the all-MLP decode head for Semantic Segmenatation.
