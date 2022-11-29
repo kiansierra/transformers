@@ -244,33 +244,30 @@ class FANSqueezeExcite(nn.Module):
 class FANSqueezeExciteMLP(nn.Module):
     def __init__(
         self,
-        in_features,
-        hidden_features=None,
-        out_features=None,
-        act_layer=nn.GELU,
-        drop=0.0,
-        linear=False,
-        use_se=True,
+        config: FANConfig,
+        index:int
     ):
         super().__init__()
-        out_features = out_features or in_features
+        in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
+        # out_features = out_features or in_features
+        hidden_features = int(in_features * config.mlp_ratio) 
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.dwconv = FANDWConv(hidden_features)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
-        self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.drop = nn.Dropout(drop)
-        self.linear = linear
-        if self.linear:
-            self.relu = nn.ReLU(inplace=True)
-        self.se = FANSqueezeExcite(out_features, se_ratio=0.25) if use_se else nn.Identity()
+        self.act = ACT2CLS[config.hidden_act]()
+        self.fc2 = nn.Linear(hidden_features, in_features)
+        self.drop = nn.Dropout(config.hidden_dropout_prob)
+        # self.linear = linear
+        # if self.linear:
+        #     self.relu = nn.ReLU(inplace=True)
+        self.se = FANSqueezeExcite(in_features, se_ratio=0.25)
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
         x = self.fc1(x)
-        if self.linear:
-            x = self.relu(x)
+        # if self.linear:
+        #     x = self.relu(x)
         # import pdb; pdb.set_trace()
         x = self.drop(self.weight * self.dwconv(x, height, width)) + x
         x = self.fc2(x)
@@ -737,39 +734,19 @@ class FANBlock_SE(nn.Module):
         self,
         config: FANConfig,
         index:int,
-        dim,
-        num_attention_heads,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        drop=0.0,
-        attn_drop=0.0,
-        sharpen_attn=False,
-        linear=False,
-        drop_path=0.0,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-        eta=1.0,
-        # sr_ratio=1.0,
-        use_se=False,
-        qk_scale=None,
         downsample=None,
-        # c_head_num=None,
     ):
         super().__init__()
-        self.norm1 = norm_layer(dim)
-        self.attn = FANTokenMixing(config, index )
+        dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
+        self.norm1 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
+        self.attn = FANTokenMixing(config, index)
         self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
 
-        self.norm2 = norm_layer(dim)
-        self.mlp = FANSqueezeExciteMLP(
-            in_features=dim,
-            hidden_features=int(dim * mlp_ratio),
-            act_layer=act_layer,
-            drop=drop,
-        )
+        self.norm2 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
+        self.mlp = FANSqueezeExciteMLP(config, index)
 
-        self.weight1 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
-        self.weight2 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
+        self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
+        self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
 
     def forward(self, x, Hp: int, Wp: int, attn=None):
         x_new, attn_s = self.attn(self.norm1(x), Hp, Wp)
@@ -784,20 +761,7 @@ class FANBlock(nn.Module):
         self,
         config: FANConfig,
         index:int,
-        dim,
-        num_attention_heads,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        drop=0.0,
-        attn_drop=0.0,
-        sharpen_attn=False,
-        drop_path=0.0,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-        eta=1.0,
-        # sr_ratio=1.0,
         downsample=None,
-        # c_head_num=None,
     ):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
@@ -806,8 +770,8 @@ class FANBlock(nn.Module):
         self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
         self.norm2 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
         self.mlp = FANChannelProcessing(config,index)
-        self.weight1 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
-        self.weight2 = nn.Parameter(eta * torch.ones(dim), requires_grad=True)
+        self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
+        self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.downsample = downsample
 
     def forward(self, x, Hp, Wp, attn=None, return_attention=False):
@@ -1260,16 +1224,10 @@ class FANEncoderLayer(nn.Module):
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
-        num_attention_heads = (
-            [config.num_attention_heads] * config.num_hidden_layers
-            if not isinstance(config.num_attention_heads, list)
-            else config.num_attention_heads
-        )
+
         channel_dims = (
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
-        norm_layer = partial(nn.LayerNorm, eps=config.layer_norm_eps)
-        act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
 
         downsample = None
 
@@ -1289,19 +1247,7 @@ class FANEncoderLayer(nn.Module):
         self.block = build_block(
             config=config,
             index=index,
-            dim=channel_dims[index],
-            num_attention_heads=num_attention_heads[index],
-            mlp_ratio=config.mlp_ratio,
-            qkv_bias=config.qkv_bias,
-            drop=config.hidden_dropout_prob,
-            # sr_ratio=config.sr_ratio[index], # Unused
-            attn_drop=config.attention_probs_dropout_prob,
-            drop_path=config.drop_path_rate,
-            act_layer=act_layer,
-            norm_layer=norm_layer,
-            eta=config.eta,
             downsample=downsample,
-            # c_head_num=config.c_head_num[index] if config.c_head_num is not None else None,
         )
 
     def forward(self, hidden_state, Hp, Wp):
