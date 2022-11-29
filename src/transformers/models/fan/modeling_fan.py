@@ -557,44 +557,28 @@ class FANClassAttentionBlock(nn.Module):
 class FANTokenMixing(nn.Module):
     def __init__(
         self,
-        dim,
-        num_attention_heads=8,
-        qkv_bias=False,
-        qk_scale=None,
-        attn_drop=0.0,
-        proj_drop=0.0,
-        # sr_ratio=1,
-        linear=False,
-        share_atten=False,
-        drop_path=0.0,
-        emlp=False,
-        sharpen_attn=False,
-        mlp_hidden_dim=None,
-        act_layer=nn.GELU,
-        drop=None,
-        norm_layer=nn.LayerNorm,
+        config: FANConfig,
+        index:int
     ):
         super().__init__()
+        dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
+        num_attention_heads =  config.num_attention_heads if not isinstance(config.num_attention_heads, list) else config.num_attention_heads[index]
+
         assert (
             dim % num_attention_heads == 0
         ), f"dim {dim} should be divided by num_attention_heads {num_attention_heads}."
 
-        self.dim = dim
+
         self.num_attention_heads = num_attention_heads
         head_dim = dim // num_attention_heads
-        self.scale = qk_scale or head_dim**-0.5
-
-        self.share_atten = share_atten
-        self.emlp = emlp
+        self.scale = head_dim**-0.5
 
         cha_sr = 1
-        self.q = nn.Linear(dim, dim // cha_sr, bias=qkv_bias)
-        self.kv = nn.Linear(dim, dim * 2 // cha_sr, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
+        self.q = nn.Linear(dim, dim // cha_sr, bias=config.qkv_bias)
+        self.kv = nn.Linear(dim, dim * 2 // cha_sr, bias=config.qkv_bias)
+        self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
         self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-        self.linear = linear
-        # self.sr_ratio = sr_ratio
+        self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, x, height, width, atten=None, return_attention=False):
         batch_size, seq_len, num_channels = x.shape
@@ -768,6 +752,8 @@ class FANChannelProcessing(nn.Module):
 class FANBlock_SE(nn.Module):
     def __init__(
         self,
+        config: FANConfig,
+        index:int,
         dim,
         num_attention_heads,
         mlp_ratio=4.0,
@@ -788,22 +774,8 @@ class FANBlock_SE(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = FANTokenMixing(
-            dim,
-            num_attention_heads=num_attention_heads,
-            qkv_bias=qkv_bias,
-            mlp_hidden_dim=int(dim * mlp_ratio),
-            sharpen_attn=sharpen_attn,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-            drop=drop,
-            drop_path=drop_path,
-            act_layer=act_layer,
-            # sr_ratio=sr_ratio,
-            linear=linear,
-            emlp=False,
-        )
-        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.attn = FANTokenMixing(config, index )
+        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
         self.mlp = FANSqueezeExciteMLP(
@@ -827,6 +799,8 @@ class FANBlock_SE(nn.Module):
 class FANBlock(nn.Module):
     def __init__(
         self,
+        config: FANConfig,
+        index:int,
         dim,
         num_attention_heads,
         mlp_ratio=4.0,
@@ -843,23 +817,12 @@ class FANBlock(nn.Module):
         # c_head_num=None,
     ):
         super().__init__()
-        self.norm1 = norm_layer(dim)
-        self.attn = FANTokenMixing(
-            dim,
-            num_attention_heads=num_attention_heads,
-            qkv_bias=qkv_bias,
-            mlp_hidden_dim=int(dim * mlp_ratio),
-            act_layer=act_layer,
-            sharpen_attn=sharpen_attn,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-            drop=drop,
-            drop_path=drop_path,
-            # sr_ratio=sr_ratio,
-        )
-        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
+        self.norm1 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
+        self.attn = FANTokenMixing(config,index)
+        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
 
-        self.norm2 = norm_layer(dim)
+        self.norm2 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
         self.mlp = FANChannelProcessing(
             dim,
             num_attention_heads=num_attention_heads,
@@ -1354,6 +1317,8 @@ class FANEncoderLayer(nn.Module):
             )
 
         self.block = build_block(
+            config=config,
+            index=index,
             dim=channel_dims[index],
             num_attention_heads=num_attention_heads[index],
             mlp_ratio=config.mlp_ratio,
