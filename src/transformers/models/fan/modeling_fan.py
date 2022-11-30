@@ -624,23 +624,11 @@ class FANHybridEmbed(nn.Module):
         patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
         self.patch_size = patch_size
         self.backbone = backbone
-        with torch.no_grad():
-            # NOTE Most reliable way of determining output dims is to run forward pass
-            training = backbone.training
-            if training:
-                backbone.eval()
-            o = self.backbone(torch.zeros(1, config.num_channels, img_size[0], img_size[1]))
-            if isinstance(o, (list, tuple)):
-                o = o[-1]  # last feature if backbone outputs list/tuple of features
-            feature_size = o.shape[-2:]
-            feature_dim = o.shape[1]
-            backbone.train(training)
-
+        feature_dim = config.hybrid_in_channels[len(config.depths)-1]
+        downsample = 4*2*(len(config.depths)-1) #Stem has stride 4, First layer has stride 1, remaining have stride 2
+        feature_size = [config.img_size[0]//downsample, config.img_size[1]//downsample]
         assert feature_size[0] % patch_size[0] == 0 and feature_size[1] % patch_size[1] == 0
-        self.grid_size = (
-            feature_size[0] // patch_size[0],
-            feature_size[1] // patch_size[1],
-        )
+        self.grid_size = (feature_size[0] // patch_size[0],feature_size[1] // patch_size[1])
         self.num_patches = self.grid_size[0] * self.grid_size[1]
         self.proj = nn.Conv2d(feature_dim, hidden_size, kernel_size=patch_size, stride=patch_size)
 
