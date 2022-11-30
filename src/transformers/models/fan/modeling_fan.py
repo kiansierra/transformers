@@ -306,7 +306,6 @@ class FANMlp(nn.Module):
     ):
         super().__init__()
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        # out_features = out_features or in_features
         hidden_features = int(in_features * config.mlp_ratio) 
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.dwconv = FANDWConv(hidden_features)
@@ -314,14 +313,9 @@ class FANMlp(nn.Module):
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
         self.drop = nn.Dropout(config.hidden_dropout_prob)
-        # self.linear = linear
-        # if self.linear:
-        #     self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x, height, width):
         x = self.fc1(x)
-        # if self.linear:
-        #     x = self.relu(x)
         x = self.drop(self.weight * self.dwconv(x, height, width)) + x
         x = self.fc2(x)
         x = self.drop(x)
@@ -1101,16 +1095,13 @@ class FANEmbeddings(nn.Module):
     def __init__(self, config: FANConfig):
         super().__init__()
         self.config = config
-
         img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
         assert (img_size[0] % config.patch_size == 0) and (
-            img_size[0] % config.patch_size == 0
+            img_size[1] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
         if config.backbone is None:
-            self.patch_embeddings = FANConvPatchEmbed(
-                config
-            )
+            self.patch_embeddings = FANConvPatchEmbed(config)
         elif config.backbone == "hybrid":
             self.patch_embeddings = FANHybridEmbed(config)
         else:
