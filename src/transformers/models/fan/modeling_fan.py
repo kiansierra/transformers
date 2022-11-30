@@ -360,9 +360,9 @@ class FANConvPatchEmbed(nn.Module):
 
     def forward(self, x):
         x = self.proj(x)
-        Hp, Wp = x.shape[2], x.shape[3]
+        height_patches, width_patches = x.shape[2], x.shape[3]
         x = x.flatten(2).transpose(1, 2)  # (batch_size, seq_len, num_channels)
-        return x, (Hp, Wp)
+        return x, (height_patches, width_patches)
 
 
 class FANDWConv(nn.Module):
@@ -729,12 +729,12 @@ class FANBlock_SE(nn.Module):
         self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
 
-    def forward(self, x, Hp: int, Wp: int, attn=None):
-        x_new, attn_s = self.attn(self.norm1(x), Hp, Wp)
+    def forward(self, x, height_patches: int, width_patches: int, attn=None):
+        x_new, attn_s = self.attn(self.norm1(x), height_patches, width_patches)
         x = x + self.drop_path(self.weight1 * x_new)
-        x_new, Hp, Wp = self.mlp(self.norm2(x), Hp, Wp)
+        x_new, height_patches, width_patches = self.mlp(self.norm2(x), height_patches, width_patches)
         x = x + self.drop_path(self.weight2 * x_new)
-        return x, Hp, Wp, attn_s
+        return x, height_patches, width_patches, attn_s
 
 
 class FANBlock(nn.Module):
@@ -759,18 +759,18 @@ class FANBlock(nn.Module):
         else:
             self.downsample = IdentityMultiple()
 
-    def forward(self, x, Hp, Wp, attn=None, return_attention=False):
+    def forward(self, x, height_patches, width_patches, attn=None, return_attention=False):
 
-        x_new, attn_s = self.attn(self.norm1(x), Hp, Wp)
+        x_new, attn_s = self.attn(self.norm1(x), height_patches, width_patches)
         x = x + self.drop_path(self.weight1 * x_new)
 
-        x_new, attn_c = self.mlp(self.norm2(x), Hp, Wp, atten=attn)
+        x_new, attn_c = self.mlp(self.norm2(x), height_patches, width_patches, atten=attn)
         x = x + self.drop_path(self.weight2 * x_new)
         if return_attention:
             return x, attn_s
 
-        x, Hp, Wp = self.downsample(x, Hp, Wp)
-        return x, Hp, Wp, attn_s
+        x, height_patches, width_patches = self.downsample(x, height_patches, width_patches)
+        return x, height_patches, width_patches, attn_s
 
 
 class FANOverlapPatchEmbed(nn.Module):
@@ -1113,23 +1113,23 @@ class FANEmbeddings(nn.Module):
         batch_size = pixel_values.shape[0]
         encoder_states = () if output_hidden_states else None
         if isinstance(self.patch_embeddings, FANHybridEmbed):
-            hidden_states, (Hp, Wp), out_list = self.patch_embeddings(pixel_values)
+            hidden_states, (height_patches, width_patches), out_list = self.patch_embeddings(pixel_values)
             if output_hidden_states:
                 encoder_states = encoder_states + tuple(out_list)
         else:
-            hidden_states, (Hp, Wp) = self.patch_embeddings(pixel_values)
+            hidden_states, (height_patches, width_patches) = self.patch_embeddings(pixel_values)
 
         if self.config.use_pos_embed:
             pos_encoding = (
-                self.pos_embed(batch_size, Hp, Wp).reshape(batch_size, -1, hidden_states.shape[1]).permute(0, 2, 1)
+                self.pos_embed(batch_size, height_patches, width_patches).reshape(batch_size, -1, hidden_states.shape[1]).permute(0, 2, 1)
             )
             hidden_states = hidden_states + pos_encoding
 
         hidden_states = self.pos_drop(hidden_states)
         if output_hidden_states:
-            return hidden_states, (Hp, Wp), encoder_states
+            return hidden_states, (height_patches, width_patches), encoder_states
 
-        return hidden_states, (Hp, Wp), encoder_states
+        return hidden_states, (height_patches, width_patches), encoder_states
 
 
 class FANEncoderLayer(nn.Module):
@@ -1149,9 +1149,9 @@ class FANEncoderLayer(nn.Module):
 
 
 
-    def forward(self, hidden_state, Hp, Wp):
-        hidden_state, Hp, Wp, attn = self.block(hidden_state, Hp, Wp)
-        return hidden_state, Hp, Wp, attn
+    def forward(self, hidden_state, height_patches, width_patches):
+        hidden_state, height_patches, width_patches, attn = self.block(hidden_state, height_patches, width_patches)
+        return hidden_state, height_patches, width_patches, attn
 
 
 class FANEncoder(nn.Module):
@@ -1190,8 +1190,8 @@ class FANEncoder(nn.Module):
     def forward(
         self,
         inputs_embeds=None,
-        Hp=None,
-        Wp=None,
+        height_patches=None,
+        width_patches=None,
         embedding_hidden_states=None,
         output_attentions=None,
         output_hidden_states=None,
@@ -1206,11 +1206,11 @@ class FANEncoder(nn.Module):
         for idx, blk in enumerate(self.blocks):
 
             if self.gradient_checkpointing:
-                current_hidden_state, Hp, Wp, attn = torch.utils.checkpoint.checkpoint(
-                    blk, current_hidden_state, Hp, Wp
+                current_hidden_state, height_patches, width_patches, attn = torch.utils.checkpoint.checkpoint(
+                    blk, current_hidden_state, height_patches, width_patches
                 )
             else:
-                (current_hidden_state, Hp, Wp, attn) = blk(current_hidden_state, Hp, Wp)
+                (current_hidden_state, height_patches, width_patches, attn) = blk(current_hidden_state, height_patches, width_patches)
 
             if output_attentions:
                 all_attentions = all_attentions + (attn,)
@@ -1229,9 +1229,9 @@ class FANEncoder(nn.Module):
 
         if output_hidden_states:
             if is_backbone_hybrid and self.config.feat_downsample:
-                tmp = current_hidden_state[:, 1:, :].reshape(batch_size, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
+                tmp = current_hidden_state[:, 1:, :].reshape(batch_size, height_patches, width_patches, -1).permute(0, 3, 1, 2).contiguous()
                 tmp = self.learnable_downsample(tmp)
-                tmp = tmp.reshape(batch_size, Hp * Wp, -1).permute(0, 2, 1).contiguous()
+                tmp = tmp.reshape(batch_size, height_patches * width_patches, -1).permute(0, 2, 1).contiguous()
                 encoder_states + (tmp,)
             else:
                 encoder_states = encoder_states + (current_hidden_state[:, 1:, :],)
@@ -1294,13 +1294,13 @@ class FANModel(FANPreTrainedModel):
         # First, sent pixel_values through Backbone to obtain the features if needed
         # pixel_values should be of shape (batch_size, num_channels, height, width)
 
-        hidden_states, (Hp, Wp), embeddings_encoder_states = self.embeddings(
+        hidden_states, (height_patches, width_patches), embeddings_encoder_states = self.embeddings(
             pixel_values=pixel_values, output_hidden_states=output_hidden_states
         )
         encoder_outputs = self.encoder(
             hidden_states,
-            Hp,
-            Wp,
+            height_patches,
+            width_patches,
             embeddings_encoder_states,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
@@ -1492,10 +1492,10 @@ class FANDecodeHead(nn.Module):
         is_backbone_hybrid = self.config.backbone == "hybrid"
 
         def reshape_hidden_state(hidden_state):
-            Hp = self.config.img_size[0] // self.config.patch_size
-            Wp = self.config.img_size[1] // self.config.patch_size
+            height_patches = self.config.img_size[0] // self.config.patch_size
+            width_patches = self.config.img_size[1] // self.config.patch_size
 
-            hidden_state_reshaped = hidden_state.reshape(batch_size, Hp, Wp, -1).permute(0, 3, 1, 2).contiguous()
+            hidden_state_reshaped = hidden_state.reshape(batch_size, height_patches, width_patches, -1).permute(0, 3, 1, 2).contiguous()
             return hidden_state_reshaped
 
         out_index = [4, 7, 11]
