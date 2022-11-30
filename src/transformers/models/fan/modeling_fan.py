@@ -402,7 +402,7 @@ class FANDWConv(nn.Module):
 
 
 # Copied from timm.models.layers.drop
-def drop_path(x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: bool = True):
+class FANDropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
 
     This is the same as the DropConnect impl I created for EfficientNet, etc networks, however, the original name is
@@ -411,26 +411,21 @@ def drop_path(x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: 
     argument names to 'drop path' rather than mix DropConnect as a layer name and use 'survival rate' as the argument.
 
     """
-    if drop_prob == 0.0 or not training:
-        return x
-    keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
-    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
-    if keep_prob > 0.0 and scale_by_keep:
-        random_tensor.div_(keep_prob)
-    return x * random_tensor
 
-
-class FANDropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks)."""
-
-    def __init__(self, drop_prob=None, scale_by_keep=True):
+    def __init__(self, drop_prob=None):
         super().__init__()
         self.drop_prob = drop_prob
-        self.scale_by_keep = scale_by_keep
+        self.keep_prob = 1 - drop_prob
 
     def forward(self, x):
-        return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
+        if self.drop_prob == 0.0 or not self.training:
+            return x
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+        random_tensor = x.new_empty(shape).bernoulli_(self.keep_prob)
+        if self.keep_prob > 0.0:
+            random_tensor.div_(self.keep_prob)
+        return x * random_tensor
+
 
 
 # Copied from timm.models.layers.mlp
