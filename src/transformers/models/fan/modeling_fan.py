@@ -356,14 +356,12 @@ class FANConvPatchEmbed(nn.Module):
                 conv3x3(hidden_size // 4, hidden_size // 1, 2),
             )
         else:
-            raise ValueError(f"For convolutional projection, patch size has to be in [8, 16] not {patch_size}")
+            raise ValueError(f"For convolutional projection, patch size has to be in [8, 16] not {config.patch_size}")
 
-    def forward(self, x, return_feat=False):
+    def forward(self, x):
         x = self.proj(x)
         Hp, Wp = x.shape[2], x.shape[3]
         x = x.flatten(2).transpose(1, 2)  # (batch_size, seq_len, num_channels)
-        if return_feat:
-            return x, (Hp, Wp), None
         return x, (Hp, Wp)
 
 
@@ -618,7 +616,6 @@ class FANHybridEmbed(nn.Module):
     ):
         super().__init__()
         backbone = FANConvNeXt(config)
-        img_size = config.img_size 
         patch_size = config.hybrid_patch_size 
         hidden_size = config.hidden_size
         patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
@@ -632,16 +629,14 @@ class FANHybridEmbed(nn.Module):
         self.num_patches = self.grid_size[0] * self.grid_size[1]
         self.proj = nn.Conv2d(feature_dim, hidden_size, kernel_size=patch_size, stride=patch_size)
 
-    def forward(self, x, return_feat=False):
-        x, out_list = self.backbone(x, return_feat=return_feat)
+    def forward(self, x):
+        x, out_list = self.backbone(x)
         batch_size, num_channels, height, width = x.shape
         if isinstance(x, (list, tuple)):
             x = x[-1]  # last feature if backbone outputs list/tuple of features
         x = self.proj(x).flatten(2).transpose(1, 2)
-        if return_feat:
-            return x, (height // self.patch_size[0], width // self.patch_size[1]), out_list
-        else:
-            return x, (height // self.patch_size[0], width // self.patch_size[1])
+        return x, (height // self.patch_size[0], width // self.patch_size[1]), out_list
+
 
 
 class FANChannelProcessing(nn.Module):
@@ -1009,14 +1004,14 @@ class FANConvNeXt(nn.Module):
             self.stages.append(FANConvNeXtStage(config,index))
 
 
-    def forward(self, x, return_feat=False):
+    def forward(self, x):
         x = self.stem(x)
         out_list = []
         for stage in self.stages:
             x = stage(x)
             out_list.append(x)
 
-        return x, out_list if return_feat else x
+        return x, out_list
 
 
 class FANPreTrainedModel(PreTrainedModel):
@@ -1118,7 +1113,7 @@ class FANEmbeddings(nn.Module):
         batch_size = pixel_values.shape[0]
         encoder_states = () if output_hidden_states else None
         if isinstance(self.patch_embeddings, FANHybridEmbed):
-            hidden_states, (Hp, Wp), out_list = self.patch_embeddings(pixel_values, return_feat=True)
+            hidden_states, (Hp, Wp), out_list = self.patch_embeddings(pixel_values)
             if output_hidden_states:
                 encoder_states = encoder_states + tuple(out_list)
         else:
