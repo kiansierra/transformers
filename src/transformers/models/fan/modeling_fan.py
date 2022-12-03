@@ -167,15 +167,16 @@ class IdentityMultiple(nn.Module):
         kwargs: any keyword argument (unused)
 
     Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+        - Input: \\((*)\\), where \\(*\\) means any number of dimensions.
+        - Output: \\((*)\\), same shape as the input.
 
-    Examples::
+Examples:
 
-        >>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False) >>> input = torch.randn(128, 20) >>>
-        output = m(input) >>> print(output.size()) torch.Size([128, 20])
-
-    """
+```python
+>>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False) >>> input = torch.randn(128, 20) >>>
+output = m(input) >>> print(output.size()) torch.Size([128, 20])
+```
+"""
 
     def __init__(self) -> None:
         super().__init__()
