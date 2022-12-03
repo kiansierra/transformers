@@ -157,7 +157,7 @@ class FanConfig(PretrainedConfig):
         feat_downsample=False,
         out_index=-1,
         rounding_mode="floor",
-        hybrid_in_channels=[128,256,512,1024],
+        hybrid_in_channels=[128, 256, 512, 1024],
         segmentation_in_channels=[448, 448, 448, 448],
         decoder_hidden_size=768,
         semantic_loss_ignore_index=-100,

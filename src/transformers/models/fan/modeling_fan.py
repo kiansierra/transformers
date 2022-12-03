@@ -58,7 +58,6 @@ FAN_PRETRAINED_MODEL_ARCHIVE_LIST = [
 ]
 
 
-
 @dataclass
 class FanModelOutput(ModelOutput):
     """
@@ -173,18 +172,17 @@ class IdentityMultiple(nn.Module):
 
     Examples::
 
-        >>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False)
-        >>> input = torch.randn(128, 20)
-        >>> output = m(input)
-        >>> print(output.size())
-        torch.Size([128, 20])
+        >>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False) >>> input = torch.randn(128, 20) >>>
+        output = m(input) >>> print(output.size()) torch.Size([128, 20])
 
     """
+
     def __init__(self) -> None:
         super().__init__()
 
     def forward(self, *args):
         return args
+
 
 # BELOW: utilities copied from
 # https://github.com/NVlabs/FAN/blob/master/models/fan.py
@@ -193,7 +191,7 @@ class FanPositionalEncodingFourier(nn.Module):
     Positional encoding relying on a fourier kernel matching the one used in the "Attention is all of Need" paper.
     """
 
-    def __init__(self, config:FanConfig):
+    def __init__(self, config: FanConfig):
         super().__init__()
         self.temperature = 10_000
         self.hidden_dim = 32
@@ -229,14 +227,10 @@ def conv3x3(in_planes, out_planes, stride=1):
     )
 
 
-
 class FanSqueezeExcite(nn.Module):
-    def __init__(
-        self,
-        input_channels
-    ):
+    def __init__(self, input_channels):
         super().__init__()
-        se_ratio=0.25
+        se_ratio = 0.25
         reduced_channels = int(input_channels * se_ratio)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.conv_reduce = nn.Conv2d(input_channels, reduced_channels, 1, bias=True)
@@ -253,14 +247,10 @@ class FanSqueezeExcite(nn.Module):
 
 
 class FanSqueezeExciteMLP(nn.Module):
-    def __init__(
-        self,
-        config: FanConfig,
-        index:int
-    ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        hidden_features = int(in_features * config.mlp_ratio) 
+        hidden_features = int(in_features * config.mlp_ratio)
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.dwconv = FanDWConv(config, index)
@@ -285,14 +275,10 @@ class FanSqueezeExciteMLP(nn.Module):
 
 
 class FanMlp(nn.Module):
-    def __init__(
-        self,
-        config: FanConfig,
-        index:int
-    ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        hidden_features = int(in_features * config.mlp_ratio) 
+        hidden_features = int(in_features * config.mlp_ratio)
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.dwconv = FanDWConv(config, index)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
@@ -311,7 +297,7 @@ class FanMlp(nn.Module):
 class FanConvPatchEmbed(nn.Module):
     """Image to Patch Embedding using multiple convolutional layers"""
 
-    def __init__(self, config:FanConfig):
+    def __init__(self, config: FanConfig):
         super().__init__()
         num_patches = (config.img_size[1] // config.patch_size) * (config.img_size[0] // config.patch_size)
         self.num_patches = num_patches
@@ -352,10 +338,10 @@ class FanConvPatchEmbed(nn.Module):
 
 
 class FanDWConv(nn.Module):
-    def __init__(self, config: FanConfig, index:int):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        hidden_features = int(in_features * config.mlp_ratio) 
+        hidden_features = int(in_features * config.mlp_ratio)
         kernel_size = 3
         padding = kernel_size // 2
         self.conv1 = torch.nn.Conv2d(
@@ -413,15 +399,14 @@ class FanDropPath(nn.Module):
         return x * random_tensor
 
 
-
 # Copied from timm.models.layers.mlp
 class FanMlpOri(nn.Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
-    def __init__(self, config:FanConfig):
+    def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
-        hidden_size = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
+        hidden_size = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
         hidden_features = int(hidden_size * config.mlp_ratio) or hidden_size
 
         self.fc1 = nn.Linear(hidden_size, hidden_features)
@@ -446,8 +431,12 @@ class FanClassAttn(nn.Module):
     def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
-        dim = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
-        self.num_attention_heads =config.num_attention_heads if not isinstance(config.num_attention_heads, list) else config.num_attention_heads[-1]
+        dim = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
+        self.num_attention_heads = (
+            config.num_attention_heads
+            if not isinstance(config.num_attention_heads, list)
+            else config.num_attention_heads[-1]
+        )
         head_dim = dim // self.num_attention_heads
         self.scale = head_dim**-0.5
 
@@ -495,10 +484,7 @@ class FanClassAttn(nn.Module):
 class FanClassAttentionBlock(nn.Module):
     """Class Attention Layer as in CaiT https://arxiv.org/abs/2103.17239"""
 
-    def __init__(
-        self,
-        config : FanConfig
-    ):
+    def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
         hidden_size = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
@@ -537,19 +523,18 @@ class FanClassAttentionBlock(nn.Module):
 
 
 class FanTokenMixing(nn.Module):
-    def __init__(
-        self,
-        config: FanConfig,
-        index:int
-    ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        num_attention_heads =  config.num_attention_heads if not isinstance(config.num_attention_heads, list) else config.num_attention_heads[index]
+        num_attention_heads = (
+            config.num_attention_heads
+            if not isinstance(config.num_attention_heads, list)
+            else config.num_attention_heads[index]
+        )
 
         assert (
             dim % num_attention_heads == 0
         ), f"dim {dim} should be divided by num_attention_heads {num_attention_heads}."
-
 
         self.num_attention_heads = num_attention_heads
         head_dim = dim // num_attention_heads
@@ -591,22 +576,21 @@ class FanHybridEmbed(nn.Module):
     Extract feature map from CNN, flatten, project to embedding dim.
     """
 
-    def __init__(
-        self,
-        config: FanConfig
-    ):
+    def __init__(self, config: FanConfig):
         super().__init__()
         backbone = FanConvNeXt(config)
-        patch_size = config.hybrid_patch_size 
+        patch_size = config.hybrid_patch_size
         hidden_size = config.hidden_size
         patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
         self.patch_size = patch_size
         self.backbone = backbone
-        feature_dim = config.hybrid_in_channels[len(config.depths)-1]
-        downsample = 4*2*(len(config.depths)-1) #Stem has stride 4, First layer has stride 1, remaining have stride 2
-        feature_size = [config.img_size[0]//downsample, config.img_size[1]//downsample]
+        feature_dim = config.hybrid_in_channels[len(config.depths) - 1]
+        downsample = (
+            4 * 2 * (len(config.depths) - 1)
+        )  # Stem has stride 4, First layer has stride 1, remaining have stride 2
+        feature_size = [config.img_size[0] // downsample, config.img_size[1] // downsample]
         assert feature_size[0] % patch_size[0] == 0 and feature_size[1] % patch_size[1] == 0
-        self.grid_size = (feature_size[0] // patch_size[0],feature_size[1] // patch_size[1])
+        self.grid_size = (feature_size[0] // patch_size[0], feature_size[1] // patch_size[1])
         self.num_patches = self.grid_size[0] * self.grid_size[1]
         self.proj = nn.Conv2d(feature_dim, hidden_size, kernel_size=patch_size, stride=patch_size)
 
@@ -619,16 +603,15 @@ class FanHybridEmbed(nn.Module):
         return x, (height // self.patch_size[0], width // self.patch_size[1]), out_list
 
 
-
 class FanChannelProcessing(nn.Module):
-    def __init__(
-        self,
-        config: FanConfig,
-        index:int
-    ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        num_attention_heads =  config.num_attention_heads if not isinstance(config.num_attention_heads, list) else config.num_attention_heads[index]
+        num_attention_heads = (
+            config.num_attention_heads
+            if not isinstance(config.num_attention_heads, list)
+            else config.num_attention_heads[index]
+        )
         assert (
             dim % num_attention_heads == 0
         ), f"dim {dim} should be divided by num_attention_heads {num_attention_heads}."
@@ -638,13 +621,9 @@ class FanChannelProcessing(nn.Module):
         self.num_attention_heads = num_attention_heads
         self.temperature = nn.Parameter(torch.ones(num_attention_heads, 1, 1))
 
-
         # config of mlp for v processing
         self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
-        self.mlp_v = FanMlp(
-            config=config,
-            index=index
-        )
+        self.mlp_v = FanMlp(config=config, index=index)
         self.norm_v = nn.LayerNorm(dim, eps=config.layer_norm_eps)
         self.q = nn.Linear(dim, dim, bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
@@ -693,11 +672,7 @@ class FanChannelProcessing(nn.Module):
 
 
 class FanBlock_SE(nn.Module):
-    def __init__(
-        self,
-        config: FanConfig,
-        index:int
-    ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
         self.norm1 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
@@ -719,18 +694,14 @@ class FanBlock_SE(nn.Module):
 
 
 class FanBlock(nn.Module):
-    def __init__(
-        self,
-        config: FanConfig,
-        index:int
-    ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
-        self.norm1 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
-        self.attn = FanTokenMixing(config,index)
+        self.norm1 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
+        self.attn = FanTokenMixing(config, index)
         self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
-        self.norm2 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
-        self.mlp = FanChannelProcessing(config,index)
+        self.norm2 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
+        self.mlp = FanChannelProcessing(config, index)
         self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         create_downsample = (config.channel_dims is not None) and (index < config.num_hidden_layers - 1)
@@ -757,11 +728,17 @@ class FanBlock(nn.Module):
 class FanOverlapPatchEmbed(nn.Module):
     """Image to Patch Embedding"""
 
-    def __init__(self, config: FanConfig, index:int, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768):
+    def __init__(
+        self, config: FanConfig, index: int, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768
+    ):
         super().__init__()
-        
-        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
-        patch_size = (3,3)
+
+        img_size = (
+            config.img_size
+            if isinstance(config.img_size, collections.abc.Iterable)
+            else (config.img_size, config.img_size)
+        )
+        patch_size = (3, 3)
 
         self.img_size = img_size
         self.patch_size = patch_size
@@ -769,12 +746,12 @@ class FanOverlapPatchEmbed(nn.Module):
         self.num_patches = self.height * self.width
         self.proj = nn.Conv2d(
             config.channel_dims[index],
-            config.channel_dims[index+1],
+            config.channel_dims[index + 1],
             kernel_size=patch_size,
             stride=2,
             padding=(patch_size[0] // 2, patch_size[1] // 2),
         )
-        self.norm = nn.LayerNorm(config.channel_dims[index+1])
+        self.norm = nn.LayerNorm(config.channel_dims[index + 1])
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
@@ -910,18 +887,16 @@ class FanConvNeXtBlock(nn.Module):
 
 
 class FanConvNeXtStage(nn.Module):
-    def __init__(
-        self,
-        config: FanConfig,
-        index:int
-    ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
-        
-        in_chs = config.hybrid_in_channels[0] if index ==0 else config.hybrid_in_channels[index-1]
+
+        in_chs = config.hybrid_in_channels[0] if index == 0 else config.hybrid_in_channels[index - 1]
         out_chs = config.hybrid_in_channels[index]
         stride = 2 if index > 0 else 1
         depth = config.depths[index]
-        dp_rates = [x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths)).split(config.depths)][index]
+        dp_rates = [
+            x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths)).split(config.depths)
+        ][index]
         ls_init_value = config.initializer_range
         norm_layer = partial(LayerNorm2d, eps=config.layer_norm_eps)
         if in_chs != out_chs or stride > 1:
@@ -967,10 +942,7 @@ class FanConvNeXt(nn.Module):
         head_init_scale (float): Init scaling value for classifier weights and biases. Default: 1.
     """
 
-    def __init__(
-        self,
-        config: FanConfig
-    ):
+    def __init__(self, config: FanConfig):
         super().__init__()
         patch_size = 4
         # NOTE: this stem is a minimal form of ViT PatchEmbed, as used in SwinTransformer width/ patch_size = 4
@@ -982,8 +954,7 @@ class FanConvNeXt(nn.Module):
         self.stages = nn.ModuleList()
         # 4 feature resolution stages, each consisting of multiple residual blocks
         for index in range(len(config.depths)):
-            self.stages.append(FanConvNeXtStage(config,index))
-
+            self.stages.append(FanConvNeXtStage(config, index))
 
     def forward(self, x):
         x = self.stem(x)
@@ -1059,7 +1030,11 @@ class FanEmbeddings(nn.Module):
     def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
-        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
+        img_size = (
+            config.img_size
+            if isinstance(config.img_size, collections.abc.Iterable)
+            else (config.img_size, config.img_size)
+        )
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[1] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
@@ -1102,7 +1077,9 @@ class FanEmbeddings(nn.Module):
 
         if self.config.use_pos_embed:
             pos_encoding = (
-                self.pos_embed(batch_size, height_patches, width_patches).reshape(batch_size, -1, hidden_states.shape[1]).permute(0, 2, 1)
+                self.pos_embed(batch_size, height_patches, width_patches)
+                .reshape(batch_size, -1, hidden_states.shape[1])
+                .permute(0, 2, 1)
             )
             hidden_states = hidden_states + pos_encoding
 
@@ -1118,17 +1095,19 @@ class FanEncoderLayer(nn.Module):
         super().__init__()
         self.config = config
 
-        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
+        img_size = (
+            config.img_size
+            if isinstance(config.img_size, collections.abc.Iterable)
+            else (config.img_size, config.img_size)
+        )
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
 
         if config.se_mlp:
-            self.block = FanBlock_SE(config=config,index=index)
+            self.block = FanBlock_SE(config=config, index=index)
         else:
-            self.block = FanBlock(config=config,index=index)
-
-
+            self.block = FanBlock(config=config, index=index)
 
     def forward(self, hidden_state, height_patches, width_patches):
         hidden_state, height_patches, width_patches, attn = self.block(hidden_state, height_patches, width_patches)
@@ -1140,7 +1119,11 @@ class FanEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.gradient_checkpointing = False
-        img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
+        img_size = (
+            config.img_size
+            if isinstance(config.img_size, collections.abc.Iterable)
+            else (config.img_size, config.img_size)
+        )
         assert (img_size[0] % config.patch_size == 0) and (
             img_size[0] % config.patch_size == 0
         ), "`patch_size` should divide image dimensions evenly"
@@ -1150,12 +1133,7 @@ class FanEncoder(nn.Module):
         )
         self.blocks = nn.ModuleList([FanEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
-        self.cls_attn_blocks = nn.ModuleList(
-            [
-                FanClassAttentionBlock(config)
-                for _ in range(config.cls_attn_layers)
-            ]
-        )
+        self.cls_attn_blocks = nn.ModuleList([FanClassAttentionBlock(config) for _ in range(config.cls_attn_layers)])
         if self.config.backbone == "hybrid" and self.config.feat_downsample:
             self.learnable_downsample = nn.Conv2d(
                 in_channels=self.config.hidden_size,
@@ -1191,7 +1169,9 @@ class FanEncoder(nn.Module):
                     blk, current_hidden_state, height_patches, width_patches
                 )
             else:
-                (current_hidden_state, height_patches, width_patches, attn) = blk(current_hidden_state, height_patches, width_patches)
+                (current_hidden_state, height_patches, width_patches, attn) = blk(
+                    current_hidden_state, height_patches, width_patches
+                )
 
             if output_attentions:
                 all_attentions = all_attentions + (attn,)
@@ -1210,7 +1190,12 @@ class FanEncoder(nn.Module):
 
         if output_hidden_states:
             if is_backbone_hybrid and self.config.feat_downsample:
-                tmp = current_hidden_state[:, 1:, :].reshape(batch_size, height_patches, width_patches, -1).permute(0, 3, 1, 2).contiguous()
+                tmp = (
+                    current_hidden_state[:, 1:, :]
+                    .reshape(batch_size, height_patches, width_patches, -1)
+                    .permute(0, 3, 1, 2)
+                    .contiguous()
+                )
                 tmp = self.learnable_downsample(tmp)
                 tmp = tmp.reshape(batch_size, height_patches * width_patches, -1).permute(0, 2, 1).contiguous()
                 encoder_states + (tmp,)
@@ -1308,7 +1293,7 @@ class FanClassificationHead(nn.Module):
 
     def __init__(self, config: FanConfig):
         super().__init__()
-        num_features = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
+        num_features = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
         self.norm = nn.LayerNorm(num_features, eps=config.layer_norm_eps)
         self.head = nn.Linear(num_features, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
@@ -1476,7 +1461,9 @@ class FanDecodeHead(nn.Module):
             height_patches = self.config.img_size[0] // self.config.patch_size
             width_patches = self.config.img_size[1] // self.config.patch_size
 
-            hidden_state_reshaped = hidden_state.reshape(batch_size, height_patches, width_patches, -1).permute(0, 3, 1, 2).contiguous()
+            hidden_state_reshaped = (
+                hidden_state.reshape(batch_size, height_patches, width_patches, -1).permute(0, 3, 1, 2).contiguous()
+            )
             return hidden_state_reshaped
 
         out_index = [4, 7, 11]
