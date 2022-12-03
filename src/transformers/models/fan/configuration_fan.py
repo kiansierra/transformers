@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" FAN model configuration"""
+""" Fan model configuration"""
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
@@ -32,11 +32,11 @@ FAN_PRETRAINED_CONFIG_ARCHIVE_MAP = {
 
 
 # ISSUE: Move configuration to nvidia/fan
-class FANConfig(PretrainedConfig):
+class FanConfig(PretrainedConfig):
     r"""
-    This is the configuration class to store the configuration of a [`~FANModel`]. It is used to instantiate an FAN
+    This is the configuration class to store the configuration of a [`~FanModel`]. It is used to instantiate an Fan
     model according to the specified arguments, defining the model architecture. Instantiating a configuration with the
-    defaults will yield a similar configuration to that of the FAN
+    defaults will yield a similar configuration to that of the Fan
     [ksmcg/fan_base_18_p16_224](https://huggingface.co/ksmcg/fan_base_18_p16_224) architecture.
 
     Configuration objects inherit from [`PretrainedConfig`] and can be used to control the model outputs. Read the
@@ -59,7 +59,7 @@ class FANConfig(PretrainedConfig):
         tokens_norm (`bool`, defaults to True):
             Whether or not to apply normalization in the Class Attention block.
         se_mlp (`bool`, defaults to False):
-            Wheter or not to use Squeeze-Excite in the FANEncoder layers MLP.
+            Wheter or not to use Squeeze-Excite in the FanEncoder layers MLP.
         initializer_range (`float`, *optional*, defaults to 0.02):
             The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
         img_size (`List[int]`, defaults to `[224,224]`):
@@ -116,13 +116,13 @@ class FANConfig(PretrainedConfig):
         Example:
 
         ```python
-        >>> from transformers import FANModel, FANConfig
+        >>> from transformers import FanModel, FanConfig
 
-        >>> # Initializing a FAN ksmcg/fan_base_18_p16_224 style configuration
-        >>> configuration = FANConfig()
+        >>> # Initializing a Fan ksmcg/fan_base_18_p16_224 style configuration
+        >>> configuration = FanConfig()
 
         >>> # Initializing a model from the ksmcg/fan_base_18_p16_224 style configuration
-        >>> model = FANModel(configuration)
+        >>> model = FanModel(configuration)
 
         >>> # Accessing the model configuration
         >>> configuration = model.config

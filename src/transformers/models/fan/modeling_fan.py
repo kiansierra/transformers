@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch FAN model."""
+""" PyTorch Fan model."""
 
 # Transformers implementation of the following paper: https://arxiv.org/abs/2204.12451
 # Based on the following repository https://github.com/NVlabs/FAN
@@ -39,14 +39,14 @@ from ...utils import (
     logging,
     replace_return_docstrings,
 )
-from .configuration_fan import FANConfig
+from .configuration_fan import FanConfig
 
 
 logger = logging.get_logger(__name__)
 
 _CHECKPOINT_FOR_DOC = "ksmcg/fan_base_18_p16_224"
-_CONFIG_FOR_DOC = "FANConfig"
-_FEAT_EXTRACTOR_FOR_DOC = "FANFeatureExtractor"
+_CONFIG_FOR_DOC = "FanConfig"
+_FEAT_EXTRACTOR_FOR_DOC = "FanFeatureExtractor"
 
 FAN_PRETRAINED_MODEL_ARCHIVE_LIST = [
     "ksmcg/fan_tiny_12_p16_224",
@@ -54,13 +54,13 @@ FAN_PRETRAINED_MODEL_ARCHIVE_LIST = [
     "ksmcg/fan_base_18_p16_224",
     "ksmcg/fan_large_24_p16_224"
     # "nvidia/fan",
-    # See all FAN models at https://huggingface.co/models?filter=fan
+    # See all Fan models at https://huggingface.co/models?filter=fan
 ]
 
 
 
 @dataclass
-class FANModelOutput(ModelOutput):
+class FanModelOutput(ModelOutput):
     """
     Base class for model's outputs, with potential hidden states and attentions.
 
@@ -79,7 +79,7 @@ class FANModelOutput(ModelOutput):
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
         backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FANConvNeXt).
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FanConvNeXt).
     """
 
     last_hidden_state: torch.FloatTensor = None
@@ -89,7 +89,7 @@ class FANModelOutput(ModelOutput):
 
 
 @dataclass
-class FANSemanticSegmenterOutput(ModelOutput):
+class FanSemanticSegmenterOutput(ModelOutput):
     """
     Base class for outputs of semantic segmentation models.
 
@@ -119,7 +119,7 @@ class FANSemanticSegmenterOutput(ModelOutput):
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
         backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FANConvNeXt).
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FanConvNeXt).
     """
 
     loss: Optional[torch.FloatTensor] = None
@@ -130,7 +130,7 @@ class FANSemanticSegmenterOutput(ModelOutput):
 
 
 @dataclass
-class FANImageClassifierOutput(ModelOutput):
+class FanImageClassifierOutput(ModelOutput):
     """
     Base class for outputs of image classification models.
 
@@ -150,7 +150,7 @@ class FANImageClassifierOutput(ModelOutput):
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
         backbone_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FANConvNeXt).
+            Tuple of `torch.FloatTensor` only available when backbone is hybrid (FanConvNeXt).
     """
 
     loss: Optional[torch.FloatTensor] = None
@@ -188,12 +188,12 @@ class IdentityMultiple(nn.Module):
 
 # BELOW: utilities copied from
 # https://github.com/NVlabs/FAN/blob/master/models/fan.py
-class FANPositionalEncodingFourier(nn.Module):
+class FanPositionalEncodingFourier(nn.Module):
     """
     Positional encoding relying on a fourier kernel matching the one used in the "Attention is all of Need" paper.
     """
 
-    def __init__(self, config:FANConfig):
+    def __init__(self, config:FanConfig):
         super().__init__()
         self.temperature = 10_000
         self.hidden_dim = 32
@@ -238,7 +238,7 @@ def make_divisible(v, divisor=8, min_value=None):
     return new_v
 
 
-class FANSqueezeExcite(nn.Module):
+class FanSqueezeExcite(nn.Module):
     def __init__(
         self,
         in_chs,
@@ -266,10 +266,10 @@ class FANSqueezeExcite(nn.Module):
         return x
 
 
-class FANSqueezeExciteMLP(nn.Module):
+class FanSqueezeExciteMLP(nn.Module):
     def __init__(
         self,
-        config: FANConfig,
+        config: FanConfig,
         index:int
     ):
         super().__init__()
@@ -277,12 +277,12 @@ class FANSqueezeExciteMLP(nn.Module):
         hidden_features = int(in_features * config.mlp_ratio) 
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = FANDWConv(hidden_features)
+        self.dwconv = FanDWConv(hidden_features)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
         self.drop = nn.Dropout(config.hidden_dropout_prob)
-        self.se = FANSqueezeExcite(in_features, se_ratio=0.25)
+        self.se = FanSqueezeExcite(in_features, se_ratio=0.25)
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
@@ -298,17 +298,17 @@ class FANSqueezeExciteMLP(nn.Module):
         return x, height, width
 
 
-class FANMlp(nn.Module):
+class FanMlp(nn.Module):
     def __init__(
         self,
-        config: FANConfig,
+        config: FanConfig,
         index:int
     ):
         super().__init__()
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
         hidden_features = int(in_features * config.mlp_ratio) 
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = FANDWConv(hidden_features)
+        self.dwconv = FanDWConv(hidden_features)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
@@ -322,10 +322,10 @@ class FANMlp(nn.Module):
         return x
 
 
-class FANConvPatchEmbed(nn.Module):
+class FanConvPatchEmbed(nn.Module):
     """Image to Patch Embedding using multiple convolutional layers"""
 
-    def __init__(self, config:FANConfig):
+    def __init__(self, config:FanConfig):
         super().__init__()
         num_patches = (config.img_size[1] // config.patch_size) * (config.img_size[0] // config.patch_size)
         self.num_patches = num_patches
@@ -365,7 +365,7 @@ class FANConvPatchEmbed(nn.Module):
         return x, (height_patches, width_patches)
 
 
-class FANDWConv(nn.Module):
+class FanDWConv(nn.Module):
     def __init__(self, in_features, out_features=None, act_layer=nn.GELU, kernel_size=3):
         super().__init__()
         out_features = out_features or in_features
@@ -402,7 +402,7 @@ class FANDWConv(nn.Module):
 
 
 # Copied from timm.models.layers.drop
-class FANDropPath(nn.Module):
+class FanDropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
 
     This is the same as the DropConnect impl I created for EfficientNet, etc networks, however, the original name is
@@ -429,10 +429,10 @@ class FANDropPath(nn.Module):
 
 
 # Copied from timm.models.layers.mlp
-class FANMlpOri(nn.Module):
+class FanMlpOri(nn.Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
-    def __init__(self, config:FANConfig):
+    def __init__(self, config:FanConfig):
         super().__init__()
         self.config = config
         hidden_size = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
@@ -454,10 +454,10 @@ class FANMlpOri(nn.Module):
 
 
 # Copied from timm.models.cait
-class FANClassAttn(nn.Module):
+class FanClassAttn(nn.Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     # with slight modifications to do CA
-    def __init__(self, config: FANConfig):
+    def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
         dim = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
@@ -506,21 +506,21 @@ class FANClassAttn(nn.Module):
         return x_cls
 
 
-class FANClassAttentionBlock(nn.Module):
+class FanClassAttentionBlock(nn.Module):
     """Class Attention Layer as in CaiT https://arxiv.org/abs/2103.17239"""
 
     def __init__(
         self,
-        config : FANConfig
+        config : FanConfig
     ):
         super().__init__()
         self.config = config
         hidden_size = config.hidden_size if config.channel_dims is None else config.channel_dims[-1]
         self.norm1 = nn.LayerNorm(hidden_size, eps=config.layer_norm_eps)
-        self.attn = FANClassAttn(config)
-        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
+        self.attn = FanClassAttn(config)
+        self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
         self.norm2 = nn.LayerNorm(hidden_size, eps=config.layer_norm_eps)
-        self.mlp = FANMlpOri(config)
+        self.mlp = FanMlpOri(config)
 
         if config.eta is not None:  # LayerScale Initialization (no layerscale when None)
             self.weight1 = nn.Parameter(config.eta * torch.ones(hidden_size), requires_grad=True)
@@ -550,10 +550,10 @@ class FANClassAttentionBlock(nn.Module):
         return x
 
 
-class FANTokenMixing(nn.Module):
+class FanTokenMixing(nn.Module):
     def __init__(
         self,
-        config: FANConfig,
+        config: FanConfig,
         index:int
     ):
         super().__init__()
@@ -600,17 +600,17 @@ class FANTokenMixing(nn.Module):
         return x, attn
 
 
-class FANHybridEmbed(nn.Module):
+class FanHybridEmbed(nn.Module):
     """CNN Feature Map Embedding
     Extract feature map from CNN, flatten, project to embedding dim.
     """
 
     def __init__(
         self,
-        config: FANConfig
+        config: FanConfig
     ):
         super().__init__()
-        backbone = FANConvNeXt(config)
+        backbone = FanConvNeXt(config)
         patch_size = config.hybrid_patch_size 
         hidden_size = config.hidden_size
         patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
@@ -634,10 +634,10 @@ class FANHybridEmbed(nn.Module):
 
 
 
-class FANChannelProcessing(nn.Module):
+class FanChannelProcessing(nn.Module):
     def __init__(
         self,
-        config: FANConfig,
+        config: FanConfig,
         index:int
     ):
         super().__init__()
@@ -654,8 +654,8 @@ class FANChannelProcessing(nn.Module):
 
 
         # config of mlp for v processing
-        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
-        self.mlp_v = FANMlp(
+        self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
+        self.mlp_v = FanMlp(
             config=config,
             index=index
         )
@@ -706,20 +706,20 @@ class FANChannelProcessing(nn.Module):
         return {"temperature"}
 
 
-class FANBlock_SE(nn.Module):
+class FanBlock_SE(nn.Module):
     def __init__(
         self,
-        config: FANConfig,
+        config: FanConfig,
         index:int
     ):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
         self.norm1 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
-        self.attn = FANTokenMixing(config, index)
-        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
+        self.attn = FanTokenMixing(config, index)
+        self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
 
         self.norm2 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
-        self.mlp = FANSqueezeExciteMLP(config, index)
+        self.mlp = FanSqueezeExciteMLP(config, index)
 
         self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
@@ -732,25 +732,25 @@ class FANBlock_SE(nn.Module):
         return x, height_patches, width_patches, attn_s
 
 
-class FANBlock(nn.Module):
+class FanBlock(nn.Module):
     def __init__(
         self,
-        config: FANConfig,
+        config: FanConfig,
         index:int
     ):
         super().__init__()
         dim = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
         self.norm1 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
-        self.attn = FANTokenMixing(config,index)
-        self.drop_path = FANDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
+        self.attn = FanTokenMixing(config,index)
+        self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
         self.norm2 = nn.LayerNorm(dim, eps = config.layer_norm_eps)
-        self.mlp = FANChannelProcessing(config,index)
+        self.mlp = FanChannelProcessing(config,index)
         self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         create_downsample = (config.channel_dims is not None) and (index < config.num_hidden_layers - 1)
         create_downsample = create_downsample and config.channel_dims[index] != config.channel_dims[index + 1]
         if create_downsample:
-            self.downsample = FANOverlapPatchEmbed(config, index)
+            self.downsample = FanOverlapPatchEmbed(config, index)
         else:
             self.downsample = IdentityMultiple()
 
@@ -768,10 +768,10 @@ class FANBlock(nn.Module):
         return x, height_patches, width_patches, attn_s
 
 
-class FANOverlapPatchEmbed(nn.Module):
+class FanOverlapPatchEmbed(nn.Module):
     """Image to Patch Embedding"""
 
-    def __init__(self, config: FANConfig, index:int, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768):
+    def __init__(self, config: FanConfig, index:int, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768):
         super().__init__()
         
         img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
@@ -835,7 +835,7 @@ class LayerNorm2d(nn.LayerNorm):
             return x
 
 
-class FANConvMlp(nn.Module):
+class FanConvMlp(nn.Module):
     """MLP using 1x1 convs that keeps spatial dims"""
 
     def __init__(
@@ -865,8 +865,8 @@ class FANConvMlp(nn.Module):
         return x
 
 
-class FANConvNeXtBlock(nn.Module):
-    """FANConvNeXt Block
+class FanConvNeXtBlock(nn.Module):
+    """FanConvNeXt Block
     There are two equivalent implementations:
       (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (seq_len, num_channels, height,
       width) (2) DwConv -> Permute to (seq_len, height, width, num_channels); LayerNorm (channels_last) -> Linear ->
@@ -894,13 +894,13 @@ class FANConvNeXtBlock(nn.Module):
         super().__init__()
         if not norm_layer:
             norm_layer = partial(LayerNorm2d, eps=1e-6) if conv_mlp else partial(nn.LayerNorm, eps=1e-6)
-        mlp_layer = FANConvMlp if conv_mlp else FANMlp
+        mlp_layer = FanConvMlp if conv_mlp else FanMlp
         self.use_conv_mlp = conv_mlp
         self.conv_dw = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
         self.norm = norm_layer(dim)
         self.mlp = mlp_layer(dim, int(mlp_ratio * dim), act_layer=nn.GELU)
         self.weight = nn.Parameter(ls_init_value * torch.ones(dim)) if ls_init_value > 0 else None
-        self.drop_path = FANDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path = FanDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         # Added This initialization to pass initialization Test
         self.weight.data = nn.init.trunc_normal_(
             self.weight.data, std=ls_init_value, a=-2 * ls_init_value, b=2 * ls_init_value
@@ -923,10 +923,10 @@ class FANConvNeXtBlock(nn.Module):
         return x
 
 
-class FANConvNeXtStage(nn.Module):
+class FanConvNeXtStage(nn.Module):
     def __init__(
         self,
-        config: FANConfig,
+        config: FanConfig,
         index:int
     ):
         super().__init__()
@@ -949,7 +949,7 @@ class FANConvNeXtStage(nn.Module):
         dp_rates = dp_rates or [0.0] * depth
         self.blocks = nn.Sequential(
             *[
-                FANConvNeXtBlock(
+                FanConvNeXtBlock(
                     dim=out_chs,
                     drop_path=dp_rates[j],
                     ls_init_value=ls_init_value,
@@ -966,8 +966,8 @@ class FANConvNeXtStage(nn.Module):
         return x
 
 
-class FANConvNeXt(nn.Module):
-    r"""FANConvNeXt
+class FanConvNeXt(nn.Module):
+    r"""FanConvNeXt
         A PyTorch impl of : `A ConvNet for the 2020s` - https://arxiv.org/pdf/2201.03545.pdf
 
     Args:
@@ -983,7 +983,7 @@ class FANConvNeXt(nn.Module):
 
     def __init__(
         self,
-        config: FANConfig
+        config: FanConfig
     ):
         super().__init__()
         patch_size = 4
@@ -996,7 +996,7 @@ class FANConvNeXt(nn.Module):
         self.stages = nn.ModuleList()
         # 4 feature resolution stages, each consisting of multiple residual blocks
         for index in range(len(config.depths)):
-            self.stages.append(FANConvNeXtStage(config,index))
+            self.stages.append(FanConvNeXtStage(config,index))
 
 
     def forward(self, x):
@@ -1009,13 +1009,13 @@ class FANConvNeXt(nn.Module):
         return x, out_list
 
 
-class FANPreTrainedModel(PreTrainedModel):
+class FanPreTrainedModel(PreTrainedModel):
     """
     An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
     models.
     """
 
-    config_class = FANConfig
+    config_class = FanConfig
     base_model_prefix = "fan"
     main_input_name = "pixel_values"
     supports_gradient_checkpointing = True
@@ -1036,7 +1036,7 @@ class FANPreTrainedModel(PreTrainedModel):
             module.weight.data.fill_(1.0)
 
     def _set_gradient_checkpointing(self, module, value=False):
-        if isinstance(module, FANEncoder):
+        if isinstance(module, FanEncoder):
             module.gradient_checkpointing = value
 
 
@@ -1046,7 +1046,7 @@ FAN_START_DOCSTRING = r"""
     behavior.
 
     Parameters:
-        config ([`~FANConfig`]): Model configuration class with all the parameters of the model.
+        config ([`~FanConfig`]): Model configuration class with all the parameters of the model.
             Initializing with a config file does not load the weights associated with the model, only the
             configuration. Check out the [`~PreTrainedModel.from_pretrained`] method to load the model weights.
 """
@@ -1056,7 +1056,7 @@ FAN_INPUTS_DOCSTRING = r"""
         pixel_values (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
             Pixel values. Padding will be ignored by default should you provide it.
 
-            Pixel values can be obtained using [`FANImageProcessor`]. See [`FANImageProcessor.__call__`] for details.
+            Pixel values can be obtained using [`FanImageProcessor`]. See [`FanImageProcessor.__call__`] for details.
 
         output_attentions (`bool`, *optional*):
             Whether or not to return the attentions tensors of all attention layers. See `attentions` under returned
@@ -1069,8 +1069,8 @@ FAN_INPUTS_DOCSTRING = r"""
 """
 
 
-class FANEmbeddings(nn.Module):
-    def __init__(self, config: FANConfig):
+class FanEmbeddings(nn.Module):
+    def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
         img_size = config.img_size if isinstance(config.img_size, collections.abc.Iterable) else (config.img_size, config.img_size)
@@ -1079,13 +1079,13 @@ class FANEmbeddings(nn.Module):
         ), "`patch_size` should divide image dimensions evenly"
 
         if config.backbone is None:
-            self.patch_embeddings = FANConvPatchEmbed(config)
+            self.patch_embeddings = FanConvPatchEmbed(config)
         elif config.backbone == "hybrid":
-            self.patch_embeddings = FANHybridEmbed(config)
+            self.patch_embeddings = FanHybridEmbed(config)
         else:
             raise ValueError(f"{config.backbone} has to be either hybrid or None")
         if config.use_pos_embed:
-            self.pos_embed = FANPositionalEncodingFourier(config)
+            self.pos_embed = FanPositionalEncodingFourier(config)
         self.pos_drop = nn.Dropout(p=config.hidden_dropout_prob)
 
     def forward(
@@ -1107,7 +1107,7 @@ class FANEmbeddings(nn.Module):
         """
         batch_size = pixel_values.shape[0]
         encoder_states = () if output_hidden_states else None
-        if isinstance(self.patch_embeddings, FANHybridEmbed):
+        if isinstance(self.patch_embeddings, FanHybridEmbed):
             hidden_states, (height_patches, width_patches), out_list = self.patch_embeddings(pixel_values)
             if output_hidden_states:
                 encoder_states = encoder_states + tuple(out_list)
@@ -1127,8 +1127,8 @@ class FANEmbeddings(nn.Module):
         return hidden_states, (height_patches, width_patches), encoder_states
 
 
-class FANEncoderLayer(nn.Module):
-    def __init__(self, config: FANConfig, index=0):
+class FanEncoderLayer(nn.Module):
+    def __init__(self, config: FanConfig, index=0):
         super().__init__()
         self.config = config
 
@@ -1138,9 +1138,9 @@ class FANEncoderLayer(nn.Module):
         ), "`patch_size` should divide image dimensions evenly"
 
         if config.se_mlp:
-            self.block = FANBlock_SE(config=config,index=index)
+            self.block = FanBlock_SE(config=config,index=index)
         else:
-            self.block = FANBlock(config=config,index=index)
+            self.block = FanBlock(config=config,index=index)
 
 
 
@@ -1149,8 +1149,8 @@ class FANEncoderLayer(nn.Module):
         return hidden_state, height_patches, width_patches, attn
 
 
-class FANEncoder(nn.Module):
-    def __init__(self, config: FANConfig):
+class FanEncoder(nn.Module):
+    def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
         self.gradient_checkpointing = False
@@ -1162,11 +1162,11 @@ class FANEncoder(nn.Module):
         channel_dims = (
             [config.hidden_size] * config.num_hidden_layers if config.channel_dims is None else config.channel_dims
         )
-        self.blocks = nn.ModuleList([FANEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
+        self.blocks = nn.ModuleList([FanEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
         self.cls_attn_blocks = nn.ModuleList(
             [
-                FANClassAttentionBlock(config)
+                FanClassAttentionBlock(config)
                 for _ in range(config.cls_attn_layers)
             ]
         )
@@ -1237,7 +1237,7 @@ class FANEncoder(nn.Module):
                 for v in [current_hidden_state, encoder_states, all_attentions, embedding_hidden_states]
                 if v is not None
             )
-        return FANModelOutput(
+        return FanModelOutput(
             last_hidden_state=current_hidden_state,
             hidden_states=encoder_states,
             attentions=all_attentions,
@@ -1246,16 +1246,16 @@ class FANEncoder(nn.Module):
 
 
 @add_start_docstrings(
-    "The bare FAN Model transformer outputting raw hidden-states without any specific head on top.",
+    "The bare Fan Model transformer outputting raw hidden-states without any specific head on top.",
     FAN_START_DOCSTRING,
 )
-class FANModel(FANPreTrainedModel):
+class FanModel(FanPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.config = config
 
-        self.embeddings = FANEmbeddings(config)
-        self.encoder = FANEncoder(config)
+        self.embeddings = FanEmbeddings(config)
+        self.encoder = FanEncoder(config)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1267,7 +1267,7 @@ class FANModel(FANPreTrainedModel):
     @add_code_sample_docstrings(
         processor_class=_FEAT_EXTRACTOR_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
-        output_type=FANModelOutput,
+        output_type=FanModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )
     def forward(
@@ -1306,7 +1306,7 @@ class FANModel(FANPreTrainedModel):
         if not return_dict:
             return (sequence_output,) + encoder_outputs[1:]
 
-        return FANModelOutput(
+        return FanModelOutput(
             last_hidden_state=sequence_output,
             hidden_states=encoder_outputs.hidden_states if output_hidden_states else None,
             attentions=encoder_outputs.attentions if output_attentions else None,
@@ -1314,13 +1314,13 @@ class FANModel(FANPreTrainedModel):
         )
 
 
-class FANClassificationHead(nn.Module):
+class FanClassificationHead(nn.Module):
     """
     Very simple multi-layer perceptron (MLP, also called FFN), used to predict the image classes logits
 
     """
 
-    def __init__(self, config: FANConfig):
+    def __init__(self, config: FanConfig):
         super().__init__()
         num_features = config.hidden_size  if config.channel_dims is None else config.channel_dims[-1]
         self.norm = nn.LayerNorm(num_features, eps=config.layer_norm_eps)
@@ -1334,25 +1334,25 @@ class FANClassificationHead(nn.Module):
 
 @add_start_docstrings(
     """
-    FAN Model transformer with an image classification head on top (a linear layer on top of the final hidden state of
+    Fan Model transformer with an image classification head on top (a linear layer on top of the final hidden state of
     the [CLS] token) e.g. for ImageNet.
     """,
     FAN_START_DOCSTRING,
 )
-class FANForImageClassification(FANPreTrainedModel):
-    def __init__(self, config: FANConfig):
+class FanForImageClassification(FanPreTrainedModel):
+    def __init__(self, config: FanConfig):
         super().__init__(config)
 
-        # FAN encoder model
-        self.fan = FANModel(config)
+        # Fan encoder model
+        self.fan = FanModel(config)
         # Image clasification head
-        self.head = FANClassificationHead(config)
+        self.head = FanClassificationHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
 
     @add_start_docstrings_to_model_forward(FAN_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=FANImageClassifierOutput, config_class=_CONFIG_FOR_DOC)
+    @replace_return_docstrings(output_type=FanImageClassifierOutput, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         pixel_values,
@@ -1360,7 +1360,7 @@ class FANForImageClassification(FANPreTrainedModel):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=True,
-    ) -> Union[Tuple, FANImageClassifierOutput]:
+    ) -> Union[Tuple, FanImageClassifierOutput]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the image classification/regression loss. Indices should be in `[0, ...,
@@ -1372,13 +1372,13 @@ class FANForImageClassification(FANPreTrainedModel):
         Examples:
 
         ```python
-        >>> from transformers import FANForImageClassification, FANImageProcessor
+        >>> from transformers import FanForImageClassification, FanImageProcessor
 
         >>> torch.manual_seed(3)  # doctest: +IGNORE_RESULT
         >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
         >>> image = Image.open(requests.get(url, stream=True).raw)
-        >>> feature_extractor = FANImageProcessor.from_pretrained("ksmcg/fan_base_18_p16_224")
-        >>> model = FANForImageClassification.from_pretrained("ksmcg/fan_base_18_p16_224")
+        >>> feature_extractor = FanImageProcessor.from_pretrained("ksmcg/fan_base_18_p16_224")
+        >>> model = FanForImageClassification.from_pretrained("ksmcg/fan_base_18_p16_224")
         >>> inputs = feature_extractor(images=image, return_tensors="pt")
         >>> outputs = model(**inputs)
         >>> logits = outputs.logits
@@ -1431,7 +1431,7 @@ class FANForImageClassification(FANPreTrainedModel):
                 if v is not None
             )
 
-        return FANImageClassifierOutput(
+        return FanImageClassifierOutput(
             loss=loss,
             logits=logits,
             hidden_states=outputs.hidden_states if output_hidden_states else None,
@@ -1440,13 +1440,13 @@ class FANForImageClassification(FANPreTrainedModel):
         )
 
 
-# Copied from modeling_segformer.py, Since FAN Model uses the segformer head
+# Copied from modeling_segformer.py, Since Fan Model uses the segformer head
 class SegformerMLP(nn.Module):
     """
     Linear Embedding.
     """
 
-    def __init__(self, config: FANConfig, input_dim):
+    def __init__(self, config: FanConfig, input_dim):
         super().__init__()
         self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
 
@@ -1456,8 +1456,8 @@ class SegformerMLP(nn.Module):
         return hidden_states
 
 
-class FANDecodeHead(nn.Module):
-    def __init__(self, config: FANConfig):
+class FanDecodeHead(nn.Module):
+    def __init__(self, config: FanConfig):
         super().__init__()
         self.config = config
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
@@ -1536,20 +1536,20 @@ class FANDecodeHead(nn.Module):
 
 
 @add_start_docstrings(
-    """FAN Model transformer with an all-MLP decode head on top e.g. for ADE20k, CityScapes.""",
+    """Fan Model transformer with an all-MLP decode head on top e.g. for ADE20k, CityScapes.""",
     FAN_START_DOCSTRING,
 )
-class FANForSemanticSegmentation(FANPreTrainedModel):
+class FanForSemanticSegmentation(FanPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
-        self.fan = FANModel(config)
-        self.decode_head = FANDecodeHead(config)
+        self.fan = FanModel(config)
+        self.decode_head = FanDecodeHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
 
     @add_start_docstrings_to_model_forward(FAN_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
-    @replace_return_docstrings(output_type=FANSemanticSegmenterOutput, config_class=_CONFIG_FOR_DOC)
+    @replace_return_docstrings(output_type=FanSemanticSegmenterOutput, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         pixel_values: torch.FloatTensor,
@@ -1557,7 +1557,7 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = True,
-    ) -> Union[Tuple, FANSemanticSegmenterOutput]:
+    ) -> Union[Tuple, FanSemanticSegmenterOutput]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, height, width)`, *optional*):
             Ground truth semantic segmentation maps for computing the loss. Indices should be in `[0, ...,
@@ -1568,14 +1568,14 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
         Examples:
 
         ```python
-        >>> from transformers import FANForSemanticSegmentation, FANImageProcessor
+        >>> from transformers import FanForSemanticSegmentation, FanImageProcessor
         >>> from PIL import Image
         >>> import requests
 
-        >>> feature_extractor = FANImageProcessor.from_pretrained("ksmcg/fan_base_16_p4_hybrid")
-        >>> # note: we are loading a FANForSemanticSegmentation from the hub here,
+        >>> feature_extractor = FanImageProcessor.from_pretrained("ksmcg/fan_base_16_p4_hybrid")
+        >>> # note: we are loading a FanForSemanticSegmentation from the hub here,
         >>> # so the head will be randomly initialized, hence the predictions will be random
-        >>> model = FANForSemanticSegmentation.from_pretrained("ksmcg/fan_base_16_p4_hybrid")
+        >>> model = FanForSemanticSegmentation.from_pretrained("ksmcg/fan_base_16_p4_hybrid")
         >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
         >>> image = Image.open(requests.get(url, stream=True).raw)
         >>> inputs = feature_extractor(images=image, return_tensors="pt")
@@ -1628,7 +1628,7 @@ class FANForSemanticSegmentation(FANPreTrainedModel):
                 if v is not None
             )
 
-        return FANSemanticSegmenterOutput(
+        return FanSemanticSegmenterOutput(
             loss=loss,
             logits=logits,
             hidden_states=outputs.hidden_states if output_hidden_states else None,
