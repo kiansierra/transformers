@@ -729,20 +729,11 @@ class FanBlock(nn.Module):
 class FanOverlapPatchEmbed(nn.Module):
     """Image to Patch Embedding"""
 
-    def __init__(
-        self, config: FanConfig, index: int, img_size=224, patch_size=7, stride=4, in_chans=3, hidden_size=768
-    ):
+    def __init__(self, config: FanConfig, index: int ):
         super().__init__()
 
-        img_size = (
-            config.img_size
-            if isinstance(config.img_size, collections.abc.Iterable)
-            else (config.img_size, config.img_size)
-        )
+        img_size = config.img_size
         patch_size = (3, 3)
-
-        self.img_size = img_size
-        self.patch_size = patch_size
         self.height, self.width = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
         self.num_patches = self.height * self.width
         self.proj = nn.Conv2d(
