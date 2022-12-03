@@ -263,7 +263,7 @@ class FanSqueezeExciteMLP(nn.Module):
         hidden_features = int(in_features * config.mlp_ratio) 
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = FanDWConv(hidden_features)
+        self.dwconv = FanDWConv(config, index)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
@@ -294,7 +294,7 @@ class FanMlp(nn.Module):
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
         hidden_features = int(in_features * config.mlp_ratio) 
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = FanDWConv(hidden_features)
+        self.dwconv = FanDWConv(config, index)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
@@ -352,27 +352,27 @@ class FanConvPatchEmbed(nn.Module):
 
 
 class FanDWConv(nn.Module):
-    def __init__(self, in_features, out_features=None, act_layer=nn.GELU, kernel_size=3):
+    def __init__(self, config: FanConfig, index:int):
         super().__init__()
-        out_features = out_features or in_features
-
+        in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
+        hidden_features = int(in_features * config.mlp_ratio) 
+        kernel_size = 3
         padding = kernel_size // 2
-
         self.conv1 = torch.nn.Conv2d(
-            in_features,
-            in_features,
+            hidden_features,
+            hidden_features,
             kernel_size=kernel_size,
             padding=padding,
-            groups=in_features,
+            groups=hidden_features,
         )
-        self.act = act_layer()
-        self.bn = nn.BatchNorm2d(in_features)
+        self.act = ACT2CLS[config.hidden_act]()
+        self.bn = nn.BatchNorm2d(hidden_features)
         self.conv2 = torch.nn.Conv2d(
-            in_features,
-            out_features,
+            hidden_features,
+            hidden_features,
             kernel_size=kernel_size,
             padding=padding,
-            groups=out_features,
+            groups=hidden_features,
         )
 
     def forward(self, x, height: int, width: int):
