@@ -229,40 +229,26 @@ def conv3x3(in_planes, out_planes, stride=1):
     )
 
 
-def make_divisible(v, divisor=8, min_value=None):
-    min_value = min_value or divisor
-    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-    # Make sure that round down does not go down by more than 10%.
-    if new_v < 0.9 * v:
-        new_v += divisor
-    return new_v
-
 
 class FanSqueezeExcite(nn.Module):
     def __init__(
         self,
-        in_chs,
-        se_ratio=0.25,
-        reduced_base_chs=None,
-        act_layer=nn.ReLU,
-        gate_fn=torch.sigmoid,
-        divisor=1,
-        **_,
+        input_channels
     ):
         super().__init__()
-        self.gate_fn = gate_fn
-        reduced_chs = make_divisible((reduced_base_chs or in_chs) * se_ratio, divisor)
+        se_ratio=0.25
+        reduced_channels = int(input_channels * se_ratio)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_reduce = nn.Conv2d(in_chs, reduced_chs, 1, bias=True)
-        self.act1 = act_layer(inplace=True)
-        self.conv_expand = nn.Conv2d(reduced_chs, in_chs, 1, bias=True)
+        self.conv_reduce = nn.Conv2d(input_channels, reduced_channels, 1, bias=True)
+        self.act1 = nn.ReLU(inplace=True)
+        self.conv_expand = nn.Conv2d(reduced_channels, input_channels, 1, bias=True)
 
     def forward(self, x):
         x_se = self.avg_pool(x)
         x_se = self.conv_reduce(x_se)
         x_se = self.act1(x_se)
         x_se = self.conv_expand(x_se)
-        x = x * self.gate_fn(x_se)
+        x = x * x_se.sigmoid()
         return x
 
 
@@ -282,7 +268,7 @@ class FanSqueezeExciteMLP(nn.Module):
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
         self.drop = nn.Dropout(config.hidden_dropout_prob)
-        self.se = FanSqueezeExcite(in_features, se_ratio=0.25)
+        self.se = FanSqueezeExcite(in_features)
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
