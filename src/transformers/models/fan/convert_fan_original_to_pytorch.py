@@ -51,54 +51,64 @@ def compose(*functions):
     return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
 
 
-def remap_patch_embed(k):
-    return k.replace("patch_embed", "patch_embeddings")
+def remap_patch_embed(key):
+    return key.replace("patch_embed", "patch_embeddings")
 
 
-def remap_embeddings(k):
-    if "embed" in k:
-        return f"fan.embeddings.{k}"
-    return k
+def remap_embeddings(key):
+    if "embed" in key:
+        return f"fan.embeddings.{key}"
+    return key
 
 
-def remap_gamma(k):
-    return k.replace("gamma", "weight")
+def remap_gamma(key):
+    return key.replace("gamma", "weight")
 
 
-def remap_head(k):
-    if k.split(".")[0] in ("norm", "head"):
-        return f"head.{k}"
-    return k
+def remap_head(key):
+    if key.split(".")[0] in ("norm", "head"):
+        return f"head.{key}"
+    return key
 
 
-def remap_encoder(k):
-    if any(x in k for x in ["fan", "head"]):
-        return k
-    return f"fan.encoder.{k}"
+def remap_encoder(key):
+    if any(x in key for x in ["fan", "head"]):
+        return key
+    return f"fan.encoder.{key}"
 
 
-def remap_blocks(k):
+def remap_blocks(key):
     pattern = "([a-z\.]*blocks\.\d*\.)"
-    if re.match(pattern, k):
-        return re.sub(pattern, "\\1block.", k)
-    return k
+    if re.match(pattern, key):
+        return re.sub(pattern, "\\1block.", key)
+    return key
+
+def remap_proj_keys(key):
+    pattern ="([a-z\.]*patch_embed\.proj\.\d*\.)"
+    if re.match(pattern, key):
+        stem = ".".join(key.split('.')[:-3])
+        first = int(key.split('.')[-3])
+        second = int(key.split('.')[-2])
+        name = key.split('.')[-1]
+        return f"{stem}.{first + first//2 + second}.{name}"
+    return key
 
 
-def remap_segmentation_linear(k):
-    if "decode_head.linear_fuse.conv" in k:
-        return k.replace("decode_head.linear_fuse.conv", "decode_head.linear_fuse")
-    if "decode_head.linear_fuse.bn" in k:
-        return k.replace("decode_head.linear_fuse.bn", "decode_head.batch_norm")
-    if "decode_head.linear_pred" in k:
-        return k.replace("decode_head.linear_pred", "decode_head.classifier")
-    return k
+def remap_segmentation_linear(key):
+    if "decode_head.linear_fuse.conv" in key:
+        return key.replace("decode_head.linear_fuse.conv", "decode_head.linear_fuse")
+    if "decode_head.linear_fuse.bn" in key:
+        return key.replace("decode_head.linear_fuse.bn", "decode_head.batch_norm")
+    if "decode_head.linear_pred" in key:
+        return key.replace("decode_head.linear_pred", "decode_head.classifier")
+    return key
 
 
-def remap_linear_fuse(k):
+def remap_linear_fuse(key):
     for num in range(4):
-        if f"decode_head.linear_c{num+1}" in k:
-            return k.replace(f"decode_head.linear_c{num+1}", f"decode_head.linear_c.{num}")
-    return k
+        if f"decode_head.linear_c{num+1}" in key:
+            return key.replace(f"decode_head.linear_c{num+1}", f"decode_head.linear_c.{num}")
+    return key
 
 
 remap_fn = compose(
@@ -110,8 +120,9 @@ remap_fn = compose(
     remap_head,
     remap_embeddings,
     remap_patch_embed,
+    remap_proj_keys
 )
 
 
 def remap_state(state_dict):
-    return {remap_fn(k): v for k, v in state_dict.items()}
+    return {remap_fn(key): weights for key, weights in state_dict.items()}

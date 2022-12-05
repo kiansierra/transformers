@@ -220,13 +220,6 @@ class FanPositionalEncodingFourier(nn.Module):
         return pos.repeat(batch_size, 1, 1, 1)  # (batch_size, num_channels, height, width)
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution + batch norm"""
-    return torch.nn.Sequential(
-        nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False),
-        nn.BatchNorm2d(out_planes),
-    )
-
 
 class FanSqueezeExcite(nn.Module):
     def __init__(self, input_channels):
