@@ -324,12 +324,13 @@ class FanConvPatchEmbed(nn.Module):
         else:
             raise ValueError(f"For convolutional projection, patch size has to be in [8, 16] not {config.patch_size}")
 
-    def forward(self, x):
+    def forward(self, pixel_values: torch.Tensor):
+        output = pixel_values
         for block in self.proj:
-            x = block(x)
-        height_patches, width_patches = x.shape[2], x.shape[3]
-        x = x.flatten(2).transpose(1, 2)  # (batch_size, seq_len, num_channels)
-        return x, (height_patches, width_patches)
+            output = block(output)
+        height_patches, width_patches = output.shape[2], output.shape[3]
+        output = output.flatten(2).transpose(1, 2)  # (batch_size, seq_len, num_channels)
+        return output, (height_patches, width_patches)
 
 
 class FanDWConv(nn.Module):
@@ -589,13 +590,13 @@ class FanHybridEmbed(nn.Module):
         self.num_patches = self.grid_size[0] * self.grid_size[1]
         self.proj = nn.Conv2d(feature_dim, hidden_size, kernel_size=patch_size, stride=patch_size)
 
-    def forward(self, x):
-        x, out_list = self.backbone(x)
-        batch_size, num_channels, height, width = x.shape
-        if isinstance(x, (list, tuple)):
-            x = x[-1]  # last feature if backbone outputs list/tuple of features
-        x = self.proj(x).flatten(2).transpose(1, 2)
-        return x, (height // self.patch_size[0], width // self.patch_size[1]), out_list
+    def forward(self, pixel_values):
+        output, out_list = self.backbone(pixel_values)
+        batch_size, num_channels, height, width = output.shape
+        if isinstance(output, (list, tuple)):
+            output = output[-1]  # last feature if backbone outputs list/tuple of features
+        output = self.proj(output).flatten(2).transpose(1, 2)
+        return output, (height // self.patch_size[0], width // self.patch_size[1]), out_list
 
 
 class FanChannelProcessing(nn.Module):
@@ -623,15 +624,8 @@ class FanChannelProcessing(nn.Module):
         self.q = nn.Linear(dim, dim, bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
 
-    def _gen_attn(self, q, k):
-        q = q.softmax(-2).transpose(-1, -2)
-        _, _, seq_len, _ = k.shape
-        k = torch.nn.functional.adaptive_avg_pool2d(k.softmax(-2), (seq_len, 1))
 
-        attn = torch.sigmoid(q @ k)
-        return attn * self.temperature
-
-    def forward(self, x, height, width, atten=None):
+    def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
         v = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
             0, 2, 1, 3
@@ -646,7 +640,12 @@ class FanChannelProcessing(nn.Module):
             0, 2, 1, 3
         )
 
-        attn = self._gen_attn(q, k)
+        q = q.softmax(-2).transpose(-1, -2)
+        _, _, seq_len, _ = k.shape
+        k = torch.nn.functional.adaptive_avg_pool2d(k.softmax(-2), (seq_len, 1))
+
+        attn = (q @ k).sigmoid()
+        attn = attn * self.temperature
         attn = self.attn_drop(attn)
 
         Bv, Hd, Nv, Cv = v.shape
@@ -661,9 +660,6 @@ class FanChannelProcessing(nn.Module):
         x = (attn * v.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, seq_len, num_channels)
         return x, (attn * v.transpose(-1, -2)).transpose(-1, -2)  # attn
 
-    @torch.jit.ignore
-    def no_weight_decay(self):
-        return {"temperature"}
 
 
 class FanBlock_SE(nn.Module):
@@ -680,12 +676,12 @@ class FanBlock_SE(nn.Module):
         self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
 
-    def forward(self, x, height_patches: int, width_patches: int, attn=None):
-        x_new, attn_s = self.attn(self.norm1(x), height_patches, width_patches)
-        x = x + self.drop_path(self.weight1 * x_new)
-        x_new, height_patches, width_patches = self.mlp(self.norm2(x), height_patches, width_patches)
-        x = x + self.drop_path(self.weight2 * x_new)
-        return x, height_patches, width_patches, attn_s
+    def forward(self, hidden_state, height_patches: int, width_patches: int, attn=None):
+        hidden_state_new, attn_s = self.attn(self.norm1(hidden_state), height_patches, width_patches)
+        hidden_state = hidden_state + self.drop_path(self.weight1 * hidden_state_new)
+        hidden_state_new, height_patches, width_patches = self.mlp(self.norm2(hidden_state), height_patches, width_patches)
+        hidden_state = hidden_state + self.drop_path(self.weight2 * hidden_state_new)
+        return hidden_state, height_patches, width_patches, attn_s
 
 
 class FanBlock(nn.Module):
@@ -706,18 +702,18 @@ class FanBlock(nn.Module):
         else:
             self.downsample = IdentityMultiple()
 
-    def forward(self, x, height_patches, width_patches, attn=None, return_attention=False):
+    def forward(self, hidden_state, height_patches, width_patches, attn=None, return_attention=False):
 
-        x_new, attn_s = self.attn(self.norm1(x), height_patches, width_patches)
-        x = x + self.drop_path(self.weight1 * x_new)
+        hidden_state_new, attn_s = self.attn(self.norm1(hidden_state), height_patches, width_patches)
+        hidden_state = hidden_state + self.drop_path(self.weight1 * hidden_state_new)
 
-        x_new, attn_c = self.mlp(self.norm2(x), height_patches, width_patches, atten=attn)
-        x = x + self.drop_path(self.weight2 * x_new)
+        hidden_state_new, attn_c = self.mlp(self.norm2(hidden_state), height_patches, width_patches, atten=attn)
+        hidden_state = hidden_state + self.drop_path(self.weight2 * hidden_state_new)
         if return_attention:
-            return x, attn_s
+            return hidden_state, attn_s
 
-        x, height_patches, width_patches = self.downsample(x, height_patches, width_patches)
-        return x, height_patches, width_patches, attn_s
+        hidden_state, height_patches, width_patches = self.downsample(hidden_state, height_patches, width_patches)
+        return hidden_state, height_patches, width_patches, attn_s
 
 
 class FanOverlapPatchEmbed(nn.Module):
