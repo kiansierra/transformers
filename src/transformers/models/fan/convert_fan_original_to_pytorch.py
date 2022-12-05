@@ -83,13 +83,14 @@ def remap_blocks(key):
         return re.sub(pattern, "\\1block.", key)
     return key
 
+
 def remap_proj_keys(key):
-    pattern ="([a-z\.]*patch_embed\.proj\.\d*\.)"
+    pattern = "([a-z\.]*patch_embed\.proj\.\d*\.)"
     if re.match(pattern, key):
-        stem = ".".join(key.split('.')[:-3])
-        first = int(key.split('.')[-3])
-        second = int(key.split('.')[-2])
-        name = key.split('.')[-1]
+        stem = ".".join(key.split(".")[:-3])
+        first = int(key.split(".")[-3])
+        second = int(key.split(".")[-2])
+        name = key.split(".")[-1]
         return f"{stem}.{first + first//2 + second}.{name}"
     return key
 
@@ -120,7 +121,7 @@ remap_fn = compose(
     remap_head,
     remap_embeddings,
     remap_patch_embed,
-    remap_proj_keys
+    remap_proj_keys,
 )
 
 

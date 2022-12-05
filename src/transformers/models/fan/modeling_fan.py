@@ -159,22 +159,8 @@ class FanImageClassifierOutput(ModelOutput):
     backbone_hidden_states: Optional[Tuple[torch.FloatTensor]] = None
 
 
-class IdentityMultiple(nn.Module):
-    r"""A placeholder identity operator that is argument-insensitive and can take multiple arguments in the forward pass.
-
-    Shape:
-        - Input: \\((*)\\), where \\(*\\) means any number of dimensions.
-        - Output: \\((*)\\), same shape as the input.
-
-    Examples:
-
-    ```python
-    >>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False) 
-    >>> input = torch.randn(128, 20) 
-    >>> output = m(input) 
-    >>> print(output.size()) torch.Size([128, 20])
-    ```
-    """
+class FanIdentityMultiple(nn.Module):
+    r"""A placeholder identity operator that is argument-insensitive and can take multiple arguments in the forward pass."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -216,7 +202,6 @@ class FanPositionalEncodingFourier(nn.Module):
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
         pos = self.token_projection(pos)
         return pos.repeat(batch_size, 1, 1, 1)  # (batch_size, num_channels, height, width)
-
 
 
 class FanSqueezeExcite(nn.Module):
@@ -295,28 +280,40 @@ class FanConvPatchEmbed(nn.Module):
         hidden_size = config.hidden_size
         self.proj = nn.ModuleList()
         if config.patch_size == 16:
-            self.proj.append(nn.Conv2d(config.num_channels, hidden_size // 8, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(
+                nn.Conv2d(config.num_channels, hidden_size // 8, kernel_size=3, stride=2, padding=1, bias=False)
+            )
             self.proj.append(nn.BatchNorm2d(hidden_size // 8))
             self.proj.append(act_layer())
-            self.proj.append(nn.Conv2d(hidden_size // 8, hidden_size // 4, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(
+                nn.Conv2d(hidden_size // 8, hidden_size // 4, kernel_size=3, stride=2, padding=1, bias=False)
+            )
             self.proj.append(nn.BatchNorm2d(hidden_size // 4))
             self.proj.append(act_layer())
-            self.proj.append(nn.Conv2d(hidden_size // 4, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(
+                nn.Conv2d(hidden_size // 4, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False)
+            )
             self.proj.append(nn.BatchNorm2d(hidden_size // 2))
             self.proj.append(act_layer())
             self.proj.append(nn.Conv2d(hidden_size // 2, hidden_size, kernel_size=3, stride=2, padding=1, bias=False))
-            self.proj.append(nn.BatchNorm2d(hidden_size))    
+            self.proj.append(nn.BatchNorm2d(hidden_size))
         elif config.patch_size == 8:
-            self.proj.append(nn.Conv2d(config.num_channels, hidden_size // 4, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(
+                nn.Conv2d(config.num_channels, hidden_size // 4, kernel_size=3, stride=2, padding=1, bias=False)
+            )
             self.proj.append(nn.BatchNorm2d(hidden_size // 4))
             self.proj.append(act_layer())
-            self.proj.append(nn.Conv2d(hidden_size // 4, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(
+                nn.Conv2d(hidden_size // 4, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False)
+            )
             self.proj.append(nn.BatchNorm2d(hidden_size // 2))
             self.proj.append(act_layer())
             self.proj.append(nn.Conv2d(hidden_size // 2, hidden_size, kernel_size=3, stride=2, padding=1, bias=False))
             self.proj.append(nn.BatchNorm2d(hidden_size))
         elif config.patch_size == 4:
-            self.proj.append(nn.Conv2d(config.num_channels, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(
+                nn.Conv2d(config.num_channels, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False)
+            )
             self.proj.append(nn.BatchNorm2d(hidden_size // 2))
             self.proj.append(act_layer())
             self.proj.append(nn.Conv2d(hidden_size // 2, hidden_size, kernel_size=3, stride=2, padding=1, bias=False))
@@ -624,7 +621,6 @@ class FanChannelProcessing(nn.Module):
         self.q = nn.Linear(dim, dim, bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
 
-
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
         v = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
@@ -661,7 +657,6 @@ class FanChannelProcessing(nn.Module):
         return x, (attn * v.transpose(-1, -2)).transpose(-1, -2)  # attn
 
 
-
 class FanBlock_SE(nn.Module):
     def __init__(self, config: FanConfig, index: int):
         super().__init__()
@@ -679,7 +674,9 @@ class FanBlock_SE(nn.Module):
     def forward(self, hidden_state, height_patches: int, width_patches: int, attn=None):
         hidden_state_new, attn_s = self.attn(self.norm1(hidden_state), height_patches, width_patches)
         hidden_state = hidden_state + self.drop_path(self.weight1 * hidden_state_new)
-        hidden_state_new, height_patches, width_patches = self.mlp(self.norm2(hidden_state), height_patches, width_patches)
+        hidden_state_new, height_patches, width_patches = self.mlp(
+            self.norm2(hidden_state), height_patches, width_patches
+        )
         hidden_state = hidden_state + self.drop_path(self.weight2 * hidden_state_new)
         return hidden_state, height_patches, width_patches, attn_s
 
@@ -700,7 +697,7 @@ class FanBlock(nn.Module):
         if create_downsample:
             self.downsample = FanOverlapPatchEmbed(config, index)
         else:
-            self.downsample = IdentityMultiple()
+            self.downsample = FanIdentityMultiple()
 
     def forward(self, hidden_state, height_patches, width_patches, return_attention=False):
 
@@ -719,7 +716,7 @@ class FanBlock(nn.Module):
 class FanOverlapPatchEmbed(nn.Module):
     """Image to Patch Embedding"""
 
-    def __init__(self, config: FanConfig, index: int ):
+    def __init__(self, config: FanConfig, index: int):
         super().__init__()
 
         img_size = config.img_size
@@ -758,7 +755,7 @@ def _is_contiguous(tensor: torch.Tensor) -> bool:
         return tensor.is_contiguous(memory_format=torch.contiguous_format)
 
 
-class LayerNorm2d(nn.LayerNorm):
+class FanLayerNorm2d(nn.LayerNorm):
     r"""LayerNorm for channels_first tensors with 2d spatial dimensions (ie seq_len, num_channels, height, width)."""
 
     def __init__(self, normalized_shape, eps=1e-6):
@@ -838,7 +835,7 @@ class FanConvNeXtBlock(nn.Module):
     ):
         super().__init__()
         if not norm_layer:
-            norm_layer = partial(LayerNorm2d, eps=1e-6) if conv_mlp else partial(nn.LayerNorm, eps=1e-6)
+            norm_layer = partial(FanLayerNorm2d, eps=1e-6) if conv_mlp else partial(nn.LayerNorm, eps=1e-6)
         mlp_layer = FanConvMlp if conv_mlp else FanMlp
         self.use_conv_mlp = conv_mlp
         self.conv_dw = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
@@ -880,7 +877,7 @@ class FanConvNeXtStage(nn.Module):
             x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths)).split(config.depths)
         ][index]
         ls_init_value = config.initializer_range
-        norm_layer = partial(LayerNorm2d, eps=config.layer_norm_eps)
+        norm_layer = partial(FanLayerNorm2d, eps=config.layer_norm_eps)
         if in_chs != out_chs or stride > 1:
             self.downsample = nn.Sequential(
                 norm_layer(in_chs),
@@ -930,7 +927,7 @@ class FanConvNeXt(nn.Module):
         # NOTE: this stem is a minimal form of ViT PatchEmbed, as used in SwinTransformer width/ patch_size = 4
         self.stem = nn.Sequential(
             nn.Conv2d(config.num_channels, config.hybrid_in_channels[0], kernel_size=patch_size, stride=patch_size),
-            LayerNorm2d(config.hybrid_in_channels[0], eps=config.layer_norm_eps),
+            FanLayerNorm2d(config.hybrid_in_channels[0], eps=config.layer_norm_eps),
         )
 
         self.stages = nn.ModuleList()
@@ -1394,7 +1391,7 @@ class FanForImageClassification(FanPreTrainedModel):
 
 
 # Copied from modeling_segformer.py, Since Fan Model uses the segformer head
-class SegformerMLP(nn.Module):
+class FanMLP(nn.Module):
     """
     Linear Embedding.
     """
@@ -1416,7 +1413,7 @@ class FanDecodeHead(nn.Module):
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
         mlps = []
         for in_channels in config.segmentation_in_channels:
-            mlp = SegformerMLP(config, input_dim=in_channels)
+            mlp = FanMLP(config, input_dim=in_channels)
             mlps.append(mlp)
         self.linear_c = nn.ModuleList(mlps)
 
