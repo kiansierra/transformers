@@ -702,12 +702,12 @@ class FanBlock(nn.Module):
         else:
             self.downsample = IdentityMultiple()
 
-    def forward(self, hidden_state, height_patches, width_patches, attn=None, return_attention=False):
+    def forward(self, hidden_state, height_patches, width_patches, return_attention=False):
 
         hidden_state_new, attn_s = self.attn(self.norm1(hidden_state), height_patches, width_patches)
         hidden_state = hidden_state + self.drop_path(self.weight1 * hidden_state_new)
 
-        hidden_state_new, attn_c = self.mlp(self.norm2(hidden_state), height_patches, width_patches, atten=attn)
+        hidden_state_new, attn_c = self.mlp(self.norm2(hidden_state), height_patches, width_patches)
         hidden_state = hidden_state + self.drop_path(self.weight2 * hidden_state_new)
         if return_attention:
             return hidden_state, attn_s
