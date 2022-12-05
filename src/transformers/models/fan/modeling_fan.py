@@ -300,39 +300,42 @@ class FanConvPatchEmbed(nn.Module):
 
     def __init__(self, config: FanConfig):
         super().__init__()
-        num_patches = (config.img_size[1] // config.patch_size) * (config.img_size[0] // config.patch_size)
-        self.num_patches = num_patches
         act_layer = ACT2CLS[config.hidden_act] if config.hidden_act else nn.GELU
         hidden_size = config.hidden_size
+        self.proj = nn.ModuleList()
         if config.patch_size == 16:
-            self.proj = torch.nn.Sequential(
-                conv3x3(config.num_channels, hidden_size // 8, 2),
-                act_layer(),
-                conv3x3(hidden_size // 8, hidden_size // 4, 2),
-                act_layer(),
-                conv3x3(hidden_size // 4, hidden_size // 2, 2),
-                act_layer(),
-                conv3x3(hidden_size // 2, hidden_size, 2),
-            )
+            self.proj.append(nn.Conv2d(config.num_channels, hidden_size // 8, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size // 8))
+            self.proj.append(act_layer())
+            self.proj.append(nn.Conv2d(hidden_size // 8, hidden_size // 4, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size // 4))
+            self.proj.append(act_layer())
+            self.proj.append(nn.Conv2d(hidden_size // 4, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size // 2))
+            self.proj.append(act_layer())
+            self.proj.append(nn.Conv2d(hidden_size // 2, hidden_size, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size))    
         elif config.patch_size == 8:
-            self.proj = torch.nn.Sequential(
-                conv3x3(config.num_channels, hidden_size // 4, 2),
-                act_layer(),
-                conv3x3(hidden_size // 4, hidden_size // 2, 2),
-                act_layer(),
-                conv3x3(hidden_size // 2, hidden_size, 2),
-            )
+            self.proj.append(nn.Conv2d(config.num_channels, hidden_size // 4, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size // 4))
+            self.proj.append(act_layer())
+            self.proj.append(nn.Conv2d(hidden_size // 4, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size // 2))
+            self.proj.append(act_layer())
+            self.proj.append(nn.Conv2d(hidden_size // 2, hidden_size, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size))
         elif config.patch_size == 4:
-            self.proj = torch.nn.Sequential(
-                conv3x3(config.num_channels, hidden_size // 4, 2),
-                act_layer(),
-                conv3x3(hidden_size // 4, hidden_size // 1, 2),
-            )
+            self.proj.append(nn.Conv2d(config.num_channels, hidden_size // 2, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size // 2))
+            self.proj.append(act_layer())
+            self.proj.append(nn.Conv2d(hidden_size // 2, hidden_size, kernel_size=3, stride=2, padding=1, bias=False))
+            self.proj.append(nn.BatchNorm2d(hidden_size))
         else:
             raise ValueError(f"For convolutional projection, patch size has to be in [8, 16] not {config.patch_size}")
 
     def forward(self, x):
-        x = self.proj(x)
+        for block in self.proj:
+            x = block(x)
         height_patches, width_patches = x.shape[2], x.shape[3]
         x = x.flatten(2).transpose(1, 2)  # (batch_size, seq_len, num_channels)
         return x, (height_patches, width_patches)
