@@ -160,23 +160,21 @@ class FanImageClassifierOutput(ModelOutput):
 
 
 class IdentityMultiple(nn.Module):
-    r"""A placeholder identity operator that is argument-insensitive.
-
-    Args:
-        args: any argument (unused)
-        kwargs: any keyword argument (unused)
+    r"""A placeholder identity operator that is argument-insensitive and can take multiple arguments in the forward pass.
 
     Shape:
         - Input: \\((*)\\), where \\(*\\) means any number of dimensions.
         - Output: \\((*)\\), same shape as the input.
 
-Examples:
+    Examples:
 
-```python
->>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False) >>> input = torch.randn(128, 20) >>>
-output = m(input) >>> print(output.size()) torch.Size([128, 20])
-```
-"""
+    ```python
+    >>> m = nn.Identity(54, unused_argument1=0.1, unused_argument2=False) 
+    >>> input = torch.randn(128, 20) 
+    >>> output = m(input) 
+    >>> print(output.size()) torch.Size([128, 20])
+    ```
+    """
 
     def __init__(self) -> None:
         super().__init__()
