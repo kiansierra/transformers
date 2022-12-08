@@ -444,30 +444,30 @@ class FanClassAttn(nn.Module):
 
     def forward(self, hidden_states, return_attention=False):
         batch_size, seq_len, num_channels = hidden_states.shape
-        q = (
+        query_layer = (
             self.q(hidden_states[:, 0])
             .unsqueeze(1)
             .reshape(batch_size, 1, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
-        k = (
+        key_layer = (
             self.k(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
-        q = q * self.scale
-        v = (
+        query_layer = query_layer * self.scale
+        value_layer = (
             self.v(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
-        attn = q @ k.transpose(-2, -1)
+        attn = query_layer @ key_layer.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x_cls = (attn @ v).transpose(1, 2).reshape(batch_size, 1, num_channels)
+        x_cls = (attn @ value_layer).transpose(1, 2).reshape(batch_size, 1, num_channels)
         x_cls = self.proj(x_cls)
         x_cls = self.proj_drop(x_cls)
 
@@ -539,7 +539,7 @@ class FanTokenMixing(nn.Module):
 
     def forward(self, x, height, width, atten=None, return_attention=False):
         batch_size, seq_len, num_channels = x.shape
-        q = (
+        query_layer = (
             self.q(x)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
@@ -551,11 +551,11 @@ class FanTokenMixing(nn.Module):
             .permute(2, 0, 3, 1, 4)
         )
 
-        k, v = kv[0], kv[1]
-        attn = q * self.scale @ k.transpose(-2, -1)  # * self.scale
+        key_layer, value_layer = kv[0], kv[1]
+        attn = query_layer * self.scale @ key_layer.transpose(-2, -1)  # * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-        x = (attn @ v).transpose(1, 2).reshape(batch_size, seq_len, num_channels)
+        x = (attn @ value_layer).transpose(1, 2).reshape(batch_size, seq_len, num_channels)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn
@@ -611,7 +611,7 @@ class FanChannelProcessing(nn.Module):
         self.num_attention_heads = num_attention_heads
         self.temperature = nn.Parameter(torch.ones(num_attention_heads, 1, 1))
 
-        # config of mlp for v processing
+        # config of mlp for value_layer processing
         self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
         self.mlp_v = FanMlp(config=config, index=index)
         self.norm_v = nn.LayerNorm(dim, eps=config.layer_norm_eps)
@@ -620,38 +620,38 @@ class FanChannelProcessing(nn.Module):
 
     def forward(self, x, height, width):
         batch_size, seq_len, num_channels = x.shape
-        v = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
+        value_layer = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
             0, 2, 1, 3
         )
 
-        q = (
+        query_layer = (
             self.q(x)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
-        k = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
+        key_layer = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
             0, 2, 1, 3
         )
 
-        q = q.softmax(-2).transpose(-1, -2)
-        _, _, seq_len, _ = k.shape
-        k = torch.nn.functional.adaptive_avg_pool2d(k.softmax(-2), (seq_len, 1))
+        query_layer = query_layer.softmax(-2).transpose(-1, -2)
+        _, _, seq_len, _ = key_layer.shape
+        key_layer = torch.nn.functional.adaptive_avg_pool2d(key_layer.softmax(-2), (seq_len, 1))
 
-        attn = (q @ k).sigmoid()
+        attn = (query_layer @ key_layer).sigmoid()
         attn = attn * self.temperature
         attn = self.attn_drop(attn)
 
-        Bv, Hd, Nv, Cv = v.shape
-        v = (
-            self.norm_v(self.mlp_v(v.transpose(1, 2).reshape(Bv, Nv, Hd * Cv), height, width))
+        Bv, Hd, Nv, Cv = value_layer.shape
+        value_layer = (
+            self.norm_v(self.mlp_v(value_layer.transpose(1, 2).reshape(Bv, Nv, Hd * Cv), height, width))
             .reshape(Bv, Nv, Hd, Cv)
             .transpose(1, 2)
         )
 
         repeat_time = seq_len // attn.shape[-1]
         attn = attn.repeat_interleave(repeat_time, dim=-1) if attn.shape[-1] > 1 else attn
-        x = (attn * v.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, seq_len, num_channels)
-        return x, (attn * v.transpose(-1, -2)).transpose(-1, -2)  # attn
+        x = (attn * value_layer.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, seq_len, num_channels)
+        return x, (attn * value_layer.transpose(-1, -2)).transpose(-1, -2)  # attn
 
 
 class FanBlock_SE(nn.Module):
@@ -1159,10 +1159,8 @@ class FanEncoder(nn.Module):
         current_hidden_state = torch.cat((cls_tokens, current_hidden_state), dim=1)
 
         for blk in self.cls_attn_blocks:
-            if output_attentions:
-                current_hidden_state = blk(current_hidden_state)
-            else:
-                current_hidden_state = blk(current_hidden_state)
+            current_hidden_state = blk(current_hidden_state)
+
 
         if output_hidden_states:
             if is_backbone_hybrid and self.config.feat_downsample:
@@ -1180,9 +1178,9 @@ class FanEncoder(nn.Module):
 
         if not return_dict:
             return tuple(
-                v
-                for v in [current_hidden_state, encoder_states, all_attentions, embedding_hidden_states]
-                if v is not None
+                elem
+                for elem in [current_hidden_state, encoder_states, all_attentions, embedding_hidden_states]
+                if elem is not None
             )
         return FanModelOutput(
             last_hidden_state=current_hidden_state,
@@ -1273,10 +1271,10 @@ class FanClassificationHead(nn.Module):
         self.norm = nn.LayerNorm(num_features, eps=config.layer_norm_eps)
         self.head = nn.Linear(num_features, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-    def forward(self, x):
-        x = self.norm(x)[:, 0]  # Extracts the First Token
-        x = self.head(x)
-        return x
+    def forward(self, last_hidden_state):
+        pooled_output = self.norm(last_hidden_state)[:, 0]  # Extracts the First Token
+        output = self.head(pooled_output)
+        return output
 
 
 @add_start_docstrings(
@@ -1373,9 +1371,9 @@ class FanForImageClassification(FanPreTrainedModel):
 
         if not return_dict:
             return tuple(
-                v
-                for v in [loss, logits, outputs.hidden_states, outputs.attentions, outputs.backbone_hidden_states]
-                if v is not None
+                elem
+                for elem in [loss, logits, outputs.hidden_states, outputs.attentions, outputs.backbone_hidden_states]
+                if elem is not None
             )
 
         return FanImageClassifierOutput(
@@ -1566,15 +1564,15 @@ class FanForSemanticSegmentation(FanPreTrainedModel):
 
         if not return_dict:
             return tuple(
-                v
-                for v in [
+                elem
+                for elem in [
                     loss,
                     logits,
                     outputs.hidden_states if output_hidden_states else None,
                     outputs.attentions if output_attentions else None,
                     outputs.backbone_hidden_states if output_hidden_states else None,
                 ]
-                if v is not None
+                if elem is not None
             )
 
         return FanSemanticSegmenterOutput(
