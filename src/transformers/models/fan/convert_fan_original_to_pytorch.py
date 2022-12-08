@@ -111,10 +111,11 @@ def remap_linear_fuse(key):
             return key.replace(f"decode_head.linear_c{num+1}", f"decode_head.linear_c.{num}")
     return key
 
+
 def remap_qkv(key):
-    elements =  key.split('.')
-    mapping_dict = {'q':'query', 'v':'value', 'k':'key', 'kv':'key_value'}
-    return '.'.join([mapping_dict.get(elem, elem) for elem in elements])
+    elements = key.split(".")
+    mapping_dict = {"q": "query", "v": "value", "k": "key", "kv": "key_value"}
+    return ".".join([mapping_dict.get(elem, elem) for elem in elements])
 
 
 remap_fn = compose(
@@ -127,7 +128,7 @@ remap_fn = compose(
     remap_embeddings,
     remap_patch_embed,
     remap_proj_keys,
-    remap_qkv
+    remap_qkv,
 )
 
 

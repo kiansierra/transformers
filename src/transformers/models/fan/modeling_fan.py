@@ -230,7 +230,7 @@ class FanSqueezeExciteMLP(nn.Module):
         hidden_features = int(in_features * config.mlp_ratio)
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = FanDWConv(config, index)
+        self.dwconv = FanDepthwiseConv(config, index)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
@@ -257,7 +257,7 @@ class FanMlp(nn.Module):
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
         hidden_features = int(in_features * config.mlp_ratio)
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = FanDWConv(config, index)
+        self.dwconv = FanDepthwiseConv(config, index)
         self.weight = nn.Parameter(torch.ones(hidden_features), requires_grad=True)
         self.act = ACT2CLS[config.hidden_act]()
         self.fc2 = nn.Linear(hidden_features, in_features)
@@ -330,7 +330,7 @@ class FanConvPatchEmbed(nn.Module):
         return output, (height_patches, width_patches)
 
 
-class FanDWConv(nn.Module):
+class FanDepthwiseConv(nn.Module):
     def __init__(self, config: FanConfig, index: int):
         super().__init__()
         in_features = config.hidden_size if config.channel_dims is None else config.channel_dims[index]
@@ -442,7 +442,7 @@ class FanClassAttn(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, seq_len, num_channels = hidden_states.shape
         query_layer = (
             self.query(hidden_states[:, 0])
@@ -467,11 +467,11 @@ class FanClassAttn(nn.Module):
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x_cls = (attn @ value_layer).transpose(1, 2).reshape(batch_size, 1, num_channels)
-        x_cls = self.proj(x_cls)
-        x_cls = self.proj_drop(x_cls)
+        hidden_states_cls = (attn @ value_layer).transpose(1, 2).reshape(batch_size, 1, num_channels)
+        hidden_states_cls = self.proj(hidden_states_cls)
+        hidden_states_cls = self.proj_drop(hidden_states_cls)
 
-        return x_cls
+        return hidden_states_cls
 
 
 class FanClassAttentionBlock(nn.Module):
@@ -493,21 +493,21 @@ class FanClassAttentionBlock(nn.Module):
         else:
             self.weight1, self.weight2 = 1.0, 1.0
 
-    def forward(self, x):
-        x_norm1 = self.norm1(x)
-        x1 = self.attn(x_norm1)
-        x_attn = torch.cat([x1, x_norm1[:, 1:]], dim=1)
-        x = x + self.drop_path(self.weight1 * x_attn)
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        hidden_states_norm = self.norm1(hidden_states)
+        normalized_attn = self.attn(hidden_states_norm)
+        hidden_states_attn = torch.cat([normalized_attn, hidden_states_norm[:, 1:]], dim=1)
+        hidden_states = hidden_states + self.drop_path(self.weight1 * hidden_states_attn)
         if self.config.tokens_norm:
-            x = self.norm2(x)
+            hidden_states = self.norm2(hidden_states)
         else:
-            x = torch.cat([self.norm2(x[:, 0:1]), x[:, 1:]], dim=1)
-        x_res = x
-        cls_token = x[:, 0:1]
+            hidden_states = torch.cat([self.norm2(hidden_states[:, 0:1]), hidden_states[:, 1:]], dim=1)
+        x_res = hidden_states
+        cls_token = hidden_states[:, 0:1]
         cls_token = self.weight2 * self.mlp(cls_token)
-        x = torch.cat([cls_token, x[:, 1:]], dim=1)
-        x = x_res + self.drop_path(x)
-        return x
+        hidden_states = torch.cat([cls_token, hidden_states[:, 1:]], dim=1)
+        hidden_states = x_res + self.drop_path(hidden_states)
+        return hidden_states
 
 
 class FanTokenMixing(nn.Module):
@@ -527,22 +527,22 @@ class FanTokenMixing(nn.Module):
         self.num_attention_heads = num_attention_heads
         head_dim = dim // num_attention_heads
         self.scale = head_dim**-0.5
-        self.query = nn.Linear(dim, dim , bias=config.qkv_bias)
-        self.key_value = nn.Linear(dim, dim * 2 , bias=config.qkv_bias)
+        self.query = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.key_value = nn.Linear(dim, dim * 2, bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, x):
-        batch_size, seq_len, num_channels = x.shape
+    def forward(self, hidden_states: torch.Tensor):
+        batch_size, seq_len, num_channels = hidden_states.shape
         query_layer = (
-            self.query(x)
+            self.query(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
         key_value_layer = (
-            self.key_value(x)
+            self.key_value(hidden_states)
             .reshape(batch_size, -1, 2, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(2, 0, 3, 1, 4)
         )
@@ -551,10 +551,10 @@ class FanTokenMixing(nn.Module):
         attn = query_layer * self.scale @ key_layer.transpose(-2, -1)  # * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-        x = (attn @ value_layer).transpose(1, 2).reshape(batch_size, seq_len, num_channels)
-        x = self.proj(x)
-        x = self.proj_drop(x)
-        return x, attn
+        hidden_states = (attn @ value_layer).transpose(1, 2).reshape(batch_size, seq_len, num_channels)
+        hidden_states = self.proj(hidden_states)
+        hidden_states = self.proj_drop(hidden_states)
+        return hidden_states, attn
 
 
 class FanHybridEmbed(nn.Module):
@@ -580,7 +580,7 @@ class FanHybridEmbed(nn.Module):
         self.num_patches = self.grid_size[0] * self.grid_size[1]
         self.proj = nn.Conv2d(feature_dim, hidden_size, kernel_size=patch_size, stride=patch_size)
 
-    def forward(self, pixel_values):
+    def forward(self, pixel_values: torch.Tensor):
         output, out_list = self.backbone(pixel_values)
         batch_size, num_channels, height, width = output.shape
         if isinstance(output, (list, tuple)):
@@ -614,20 +614,20 @@ class FanChannelProcessing(nn.Module):
         self.query = nn.Linear(dim, dim, bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
 
-    def forward(self, x, height, width):
-        batch_size, seq_len, num_channels = x.shape
-        value_layer = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
-            0, 2, 1, 3
-        )
+    def forward(self, hidden_states, height, width):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        value_layer = hidden_states.reshape(
+            batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads
+        ).permute(0, 2, 1, 3)
 
         query_layer = (
-            self.query(x)
+            self.query(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
-        key_layer = x.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).permute(
-            0, 2, 1, 3
-        )
+        key_layer = hidden_states.reshape(
+            batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads
+        ).permute(0, 2, 1, 3)
 
         query_layer = query_layer.softmax(-2).transpose(-1, -2)
         _, _, seq_len, _ = key_layer.shape
@@ -646,8 +646,10 @@ class FanChannelProcessing(nn.Module):
 
         repeat_time = seq_len // attn.shape[-1]
         attn = attn.repeat_interleave(repeat_time, dim=-1) if attn.shape[-1] > 1 else attn
-        x = (attn * value_layer.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, seq_len, num_channels)
-        return x, (attn * value_layer.transpose(-1, -2)).transpose(-1, -2)  # attn
+        hidden_states = (
+            (attn * value_layer.transpose(-1, -2)).permute(0, 3, 1, 2).reshape(batch_size, seq_len, num_channels)
+        )
+        return hidden_states, (attn * value_layer.transpose(-1, -2)).transpose(-1, -2)  # attn
 
 
 class FanBlock_SE(nn.Module):
@@ -688,7 +690,6 @@ class FanBlock(nn.Module):
         create_downsample = (config.channel_dims is not None) and (index < config.num_hidden_layers - 1)
         create_downsample = create_downsample and config.channel_dims[index] != config.channel_dims[index + 1]
         self.downsample = FanOverlapPatchEmbed(config, index) if create_downsample else FanIdentityMultiple()
-
 
     def forward(self, hidden_state, height_patches, width_patches):
 
@@ -739,7 +740,7 @@ class FanLayerNorm2d(nn.LayerNorm):
     def __init__(self, normalized_shape, eps=1e-6):
         super().__init__(normalized_shape, eps=eps)
 
-    def forward(self, x:torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.is_contiguous(memory_format=torch.contiguous_format):
             return F.layer_norm(
                 x.permute(0, 2, 3, 1),
@@ -1119,7 +1120,7 @@ class FanEncoder(nn.Module):
         is_backbone_hybrid = self.config.backbone == "hybrid"
 
         current_hidden_state = inputs_embeds
-        for idx, blk in enumerate(self.blocks):
+        for blk in self.blocks:
 
             if self.gradient_checkpointing:
                 current_hidden_state, height_patches, width_patches, attn = torch.utils.checkpoint.checkpoint(
@@ -1141,7 +1142,6 @@ class FanEncoder(nn.Module):
 
         for blk in self.cls_attn_blocks:
             current_hidden_state = blk(current_hidden_state)
-
 
         if output_hidden_states:
             if is_backbone_hybrid and self.config.feat_downsample:
