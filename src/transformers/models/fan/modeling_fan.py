@@ -20,7 +20,6 @@
 import collections.abc
 import math
 from dataclasses import dataclass
-from functools import partial
 from typing import Optional, Tuple, Union
 
 import torch
@@ -638,7 +637,9 @@ class FanChannelProcessing(nn.Module):
         value_layer = value_layer.transpose(1, 2).reshape(batch_size, seq_len, num_channels)
         value_layer = self.mlp_v(value_layer, height, width)
         value_layer = self.norm_v(value_layer)
-        value_layer = value_layer.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).transpose(1, 2)
+        value_layer = value_layer.reshape(
+            batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads
+        ).transpose(1, 2)
 
         repeat_time = seq_len // attn.shape[-1]
         attn = attn.repeat_interleave(repeat_time, dim=-1) if attn.shape[-1] > 1 else attn
@@ -802,8 +803,8 @@ class FanConvNeXtBlock(nn.Module):
     def __init__(
         self,
         config: FanConfig,
-        stage_index:int,
-        block_index:int,
+        stage_index: int,
+        block_index: int,
     ):
         super().__init__()
         mlp_ratio = 4
@@ -814,11 +815,16 @@ class FanConvNeXtBlock(nn.Module):
         self.conv_dw = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
         self.norm = FanLayerNorm2d(dim, eps=config.layer_norm_eps)
         self.mlp = FanConvMlp(dim, int(mlp_ratio * dim), act_layer=nn.GELU)
-        self.weight = nn.Parameter(config.initializer_range * torch.ones(dim)) if config.initializer_range > 0 else None
+        self.weight = (
+            nn.Parameter(config.initializer_range * torch.ones(dim)) if config.initializer_range > 0 else None
+        )
         self.drop_path = FanDropPath(droppath_rate) if droppath_rate > 0.0 else nn.Identity()
         # Added This initialization to pass initialization Test
         self.weight.data = nn.init.trunc_normal_(
-            self.weight.data, std=config.initializer_range, a=-2 * config.initializer_range, b=2 * config.initializer_range
+            self.weight.data,
+            std=config.initializer_range,
+            a=-2 * config.initializer_range,
+            b=2 * config.initializer_range,
         )
 
     def forward(self, hidden_states):
@@ -843,7 +849,7 @@ class FanConvNeXtStage(nn.Module):
         depth = config.depths[index]
         do_downsample = in_channels != out_channels or stride > 1
         self.downsample = nn.ModuleList()
-        
+
         if do_downsample:
             self.downsample.append(FanLayerNorm2d(in_channels, eps=config.layer_norm_eps))
             self.downsample.append(nn.Conv2d(in_channels, out_channels, kernel_size=stride, stride=stride))
@@ -853,8 +859,7 @@ class FanConvNeXtStage(nn.Module):
         for j in range(depth):
             self.blocks.append(FanConvNeXtBlock(config, stage_index=index, block_index=j))
 
-
-    def forward(self, hidden_states: torch.Tensor)->torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         for layer in self.downsample:
             hidden_states = layer(hidden_states)
         for block in self.blocks:
@@ -1083,7 +1088,6 @@ class FanEncoder(nn.Module):
         batch_size = inputs_embeds.shape[0]
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
-        is_backbone_hybrid = self.config.backbone == "hybrid"
 
         current_hidden_state = inputs_embeds
         for blk in self.blocks:
@@ -1110,7 +1114,7 @@ class FanEncoder(nn.Module):
             current_hidden_state = blk(current_hidden_state)
 
         if output_hidden_states:
-                encoder_states = encoder_states + (current_hidden_state[:, 1:, :],)
+            encoder_states = encoder_states + (current_hidden_state[:, 1:, :],)
 
         if not return_dict:
             return tuple(
