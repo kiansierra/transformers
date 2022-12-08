@@ -395,7 +395,7 @@ class FanDropPath(nn.Module):
 
 
 # Copied from timm.models.layers.mlp
-class FanMlpOri(nn.Module):
+class FanMlpOriginal(nn.Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
     def __init__(self, config: FanConfig):
@@ -485,7 +485,7 @@ class FanClassAttentionBlock(nn.Module):
         self.attn = FanClassAttn(config)
         self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
         self.norm2 = nn.LayerNorm(hidden_size, eps=config.layer_norm_eps)
-        self.mlp = FanMlpOri(config)
+        self.mlp = FanMlpOriginal(config)
 
         if config.eta is not None:  # LayerScale Initialization (no layerscale when None)
             self.weight1 = nn.Parameter(config.eta * torch.ones(hidden_size), requires_grad=True)
@@ -1348,7 +1348,7 @@ class FanForImageClassification(FanPreTrainedModel):
 
 
 # Copied from modeling_segformer.py, Since Fan Model uses the segformer head
-class FanMLP(nn.Module):
+class FanSegformerMLP(nn.Module):
     """
     Linear Embedding.
     """
@@ -1370,7 +1370,7 @@ class FanDecodeHead(nn.Module):
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
         mlps = []
         for in_channels in config.segmentation_in_channels:
-            mlp = FanMLP(config, input_dim=in_channels)
+            mlp = FanSegformerMLP(config, input_dim=in_channels)
             mlps.append(mlp)
         self.linear_c = nn.ModuleList(mlps)
 
