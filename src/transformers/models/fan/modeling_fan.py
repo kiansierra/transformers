@@ -160,7 +160,7 @@ class FanImageClassifierOutput(ModelOutput):
 
 
 class FanIdentityMultiple(nn.Module):
-    r"""A placeholder identity operator that is argument-insensitive and can take multiple arguments in the forward pass."""
+    r"""A placeholder identity operator that can take multiple arguments in the forward pass."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -214,13 +214,13 @@ class FanSqueezeExcite(nn.Module):
         self.act1 = nn.ReLU(inplace=True)
         self.conv_expand = nn.Conv2d(reduced_channels, input_channels, 1, bias=True)
 
-    def forward(self, x):
-        x_se = self.avg_pool(x)
-        x_se = self.conv_reduce(x_se)
-        x_se = self.act1(x_se)
-        x_se = self.conv_expand(x_se)
-        x = x * x_se.sigmoid()
-        return x
+    def forward(self, hidden_state):
+        squeeze_excited = self.avg_pool(hidden_state)
+        squeeze_excited = self.conv_reduce(squeeze_excited)
+        squeeze_excited = self.act1(squeeze_excited)
+        squeeze_excited = self.conv_expand(squeeze_excited)
+        hidden_state = hidden_state * squeeze_excited.sigmoid()
+        return hidden_state
 
 
 class FanSqueezeExciteMLP(nn.Module):
@@ -237,18 +237,18 @@ class FanSqueezeExciteMLP(nn.Module):
         self.drop = nn.Dropout(config.hidden_dropout_prob)
         self.se = FanSqueezeExcite(in_features)
 
-    def forward(self, x, height, width):
-        batch_size, seq_len, num_channels = x.shape
-        x = self.fc1(x)
-        x = self.drop(self.weight * self.dwconv(x, height, width)) + x
-        x = self.fc2(x)
-        x = self.drop(x)
-        x = (
-            self.se(x.permute(0, 2, 1).reshape(batch_size, num_channels, height, width))
+    def forward(self, hidden_state, height, width):
+        batch_size, seq_len, num_channels = hidden_state.shape
+        hidden_state = self.fc1(hidden_state)
+        hidden_state = self.drop(self.weight * self.dwconv(hidden_state, height, width)) + hidden_state
+        hidden_state = self.fc2(hidden_state)
+        hidden_state = self.drop(hidden_state)
+        hidden_state = (
+            self.se(hidden_state.permute(0, 2, 1).reshape(batch_size, num_channels, height, width))
             .reshape(batch_size, num_channels, seq_len)
             .permute(0, 2, 1)
         )
-        return x, height, width
+        return hidden_state, height, width
 
 
 class FanMlp(nn.Module):
@@ -263,12 +263,12 @@ class FanMlp(nn.Module):
         self.fc2 = nn.Linear(hidden_features, in_features)
         self.drop = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, x, height, width):
-        x = self.fc1(x)
-        x = self.drop(self.weight * self.dwconv(x, height, width)) + x
-        x = self.fc2(x)
-        x = self.drop(x)
-        return x
+    def forward(self, hidden_states, height, width):
+        hidden_states = self.fc1(hidden_states)
+        hidden_states = self.drop(self.weight * self.dwconv(hidden_states, height, width)) + hidden_states
+        hidden_states = self.fc2(hidden_states)
+        hidden_states = self.drop(hidden_states)
+        return hidden_states
 
 
 class FanConvPatchEmbed(nn.Module):
@@ -354,16 +354,16 @@ class FanDWConv(nn.Module):
             groups=hidden_features,
         )
 
-    def forward(self, x, height: int, width: int):
-        batch_size, seq_len, num_channels = x.shape
-        x = x.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-        x = self.conv1(x)
-        x = self.act(x)
-        x = self.bn(x)
+    def forward(self, hidden_states, height: int, width: int):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+        hidden_states = self.conv1(hidden_states)
+        hidden_states = self.act(hidden_states)
+        hidden_states = self.bn(hidden_states)
 
-        x = self.conv2(x)
-        x = x.reshape(batch_size, num_channels, seq_len).permute(0, 2, 1)
-        return x
+        hidden_states = self.conv2(hidden_states)
+        hidden_states = hidden_states.reshape(batch_size, num_channels, seq_len).permute(0, 2, 1)
+        return hidden_states
 
 
 # Copied from timm.models.layers.drop
@@ -382,14 +382,16 @@ class FanDropPath(nn.Module):
         self.drop_prob = drop_prob
         self.keep_prob = 1 - drop_prob
 
-    def forward(self, x):
+    def forward(self, hidden_states):
         if self.drop_prob == 0.0 or not self.training:
-            return x
-        shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
-        random_tensor = x.new_empty(shape).bernoulli_(self.keep_prob)
+            return hidden_states
+        shape = (hidden_states.shape[0],) + (1,) * (
+            hidden_states.ndim - 1
+        )  # work with diff dim tensors, not just 2D ConvNets
+        random_tensor = hidden_states.new_empty(shape).bernoulli_(self.keep_prob)
         if self.keep_prob > 0.0:
             random_tensor.div_(self.keep_prob)
-        return x * random_tensor
+        return hidden_states * random_tensor
 
 
 # Copied from timm.models.layers.mlp
@@ -408,13 +410,13 @@ class FanMlpOri(nn.Module):
         self.fc2 = nn.Linear(hidden_features, hidden_size)
         self.drop2 = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop1(x)
-        x = self.fc2(x)
-        x = self.drop2(x)
-        return x
+    def forward(self, hidden_states):
+        hidden_states = self.fc1(hidden_states)
+        hidden_states = self.act(hidden_states)
+        hidden_states = self.drop1(hidden_states)
+        hidden_states = self.fc2(hidden_states)
+        hidden_states = self.drop2(hidden_states)
+        return hidden_states
 
 
 # Copied from timm.models.cait
@@ -440,23 +442,23 @@ class FanClassAttn(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, x, return_attention=False):
-        batch_size, seq_len, num_channels = x.shape
+    def forward(self, hidden_states, return_attention=False):
+        batch_size, seq_len, num_channels = hidden_states.shape
         q = (
-            self.q(x[:, 0])
+            self.q(hidden_states[:, 0])
             .unsqueeze(1)
             .reshape(batch_size, 1, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
         k = (
-            self.k(x)
+            self.k(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
         q = q * self.scale
         v = (
-            self.v(x)
+            self.v(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
@@ -493,12 +495,9 @@ class FanClassAttentionBlock(nn.Module):
         else:
             self.weight1, self.weight2 = 1.0, 1.0
 
-    def forward(self, x, return_attention=False):
+    def forward(self, x):
         x_norm1 = self.norm1(x)
-        if return_attention:
-            x1, attn = self.attn(x_norm1, return_attention=return_attention)
-        else:
-            x1 = self.attn(x_norm1)
+        x1 = self.attn(x_norm1)
         x_attn = torch.cat([x1, x_norm1[:, 1:]], dim=1)
         x = x + self.drop_path(self.weight1 * x_attn)
         if self.config.tokens_norm:
@@ -510,8 +509,6 @@ class FanClassAttentionBlock(nn.Module):
         cls_token = self.weight2 * self.mlp(cls_token)
         x = torch.cat([cls_token, x[:, 1:]], dim=1)
         x = x_res + self.drop_path(x)
-        if return_attention:
-            return x, attn
         return x
 
 
@@ -1163,7 +1160,7 @@ class FanEncoder(nn.Module):
 
         for blk in self.cls_attn_blocks:
             if output_attentions:
-                current_hidden_state, attn = blk(current_hidden_state, output_attentions)
+                current_hidden_state = blk(current_hidden_state)
             else:
                 current_hidden_state = blk(current_hidden_state)
 
