@@ -529,15 +529,13 @@ class FanTokenMixing(nn.Module):
         self.num_attention_heads = num_attention_heads
         head_dim = dim // num_attention_heads
         self.scale = head_dim**-0.5
-
-        cha_sr = 1
-        self.q = nn.Linear(dim, dim // cha_sr, bias=config.qkv_bias)
-        self.kv = nn.Linear(dim, dim * 2 // cha_sr, bias=config.qkv_bias)
+        self.q = nn.Linear(dim, dim , bias=config.qkv_bias)
+        self.kv = nn.Linear(dim, dim * 2 , bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, x, height, width, atten=None, return_attention=False):
+    def forward(self, x):
         batch_size, seq_len, num_channels = x.shape
         query_layer = (
             self.q(x)
@@ -545,13 +543,13 @@ class FanTokenMixing(nn.Module):
             .permute(0, 2, 1, 3)
         )
 
-        kv = (
+        key_value_layer = (
             self.kv(x)
             .reshape(batch_size, -1, 2, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(2, 0, 3, 1, 4)
         )
 
-        key_layer, value_layer = kv[0], kv[1]
+        key_layer, value_layer = key_value_layer[0], key_value_layer[1]
         attn = query_layer * self.scale @ key_layer.transpose(-2, -1)  # * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
@@ -669,7 +667,7 @@ class FanBlock_SE(nn.Module):
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
 
     def forward(self, hidden_state, height_patches: int, width_patches: int, attn=None):
-        hidden_state_new, attn_s = self.attn(self.norm1(hidden_state), height_patches, width_patches)
+        hidden_state_new, attn_s = self.attn(self.norm1(hidden_state))
         hidden_state = hidden_state + self.drop_path(self.weight1 * hidden_state_new)
         hidden_state_new, height_patches, width_patches = self.mlp(
             self.norm2(hidden_state), height_patches, width_patches
@@ -691,20 +689,16 @@ class FanBlock(nn.Module):
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         create_downsample = (config.channel_dims is not None) and (index < config.num_hidden_layers - 1)
         create_downsample = create_downsample and config.channel_dims[index] != config.channel_dims[index + 1]
-        if create_downsample:
-            self.downsample = FanOverlapPatchEmbed(config, index)
-        else:
-            self.downsample = FanIdentityMultiple()
+        self.downsample = FanOverlapPatchEmbed(config, index) if create_downsample else FanIdentityMultiple()
 
-    def forward(self, hidden_state, height_patches, width_patches, return_attention=False):
 
-        hidden_state_new, attn_s = self.attn(self.norm1(hidden_state), height_patches, width_patches)
+    def forward(self, hidden_state, height_patches, width_patches):
+
+        hidden_state_new, attn_s = self.attn(self.norm1(hidden_state))
         hidden_state = hidden_state + self.drop_path(self.weight1 * hidden_state_new)
 
         hidden_state_new, attn_c = self.mlp(self.norm2(hidden_state), height_patches, width_patches)
         hidden_state = hidden_state + self.drop_path(self.weight2 * hidden_state_new)
-        if return_attention:
-            return hidden_state, attn_s
 
         hidden_state, height_patches, width_patches = self.downsample(hidden_state, height_patches, width_patches)
         return hidden_state, height_patches, width_patches, attn_s
@@ -729,27 +723,16 @@ class FanOverlapPatchEmbed(nn.Module):
         )
         self.norm = nn.LayerNorm(config.channel_dims[index + 1])
 
-    def forward(self, x, height, width):
-        batch_size, seq_len, num_channels = x.shape
-        x = x.transpose(-1, -2).reshape(batch_size, num_channels, height, width)
-        x = self.proj(x)
-        _, _, height, width = x.shape
+    def forward(self, hidden_states, height, width):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.transpose(-1, -2).reshape(batch_size, num_channels, height, width)
+        hidden_states = self.proj(hidden_states)
+        _, _, height, width = hidden_states.shape
 
-        x = x.flatten(2).transpose(1, 2)
-        x = self.norm(x)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = self.norm(hidden_states)
 
-        return x, height, width
-
-
-# ConvNext Utils for Hybrid Backbones
-def _is_contiguous(tensor: torch.Tensor) -> bool:
-    # jit is oh so lovely :/
-    # if torch.jit.is_tracing():
-    #     return True
-    if torch.jit.is_scripting():
-        return tensor.is_contiguous()
-    else:
-        return tensor.is_contiguous(memory_format=torch.contiguous_format)
+        return hidden_states, height, width
 
 
 class FanLayerNorm2d(nn.LayerNorm):
@@ -758,8 +741,8 @@ class FanLayerNorm2d(nn.LayerNorm):
     def __init__(self, normalized_shape, eps=1e-6):
         super().__init__(normalized_shape, eps=eps)
 
-    def forward(self, x) -> torch.Tensor:
-        if _is_contiguous(x):
+    def forward(self, x:torch.Tensor) -> torch.Tensor:
+        if x.is_contiguous(memory_format=torch.contiguous_format):
             return F.layer_norm(
                 x.permute(0, 2, 3, 1),
                 self.normalized_shape,
