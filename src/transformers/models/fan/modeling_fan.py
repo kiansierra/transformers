@@ -666,7 +666,7 @@ class FanBlock_SE(nn.Module):
         self.weight1 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
         self.weight2 = nn.Parameter(config.eta * torch.ones(dim), requires_grad=True)
 
-    def forward(self, hidden_state, height_patches: int, width_patches: int, attn=None):
+    def forward(self, hidden_state, height_patches: int, width_patches: int):
         hidden_state_new, attn_s = self.attn(self.norm1(hidden_state))
         hidden_state = hidden_state + self.drop_path(self.weight1 * hidden_state_new)
         hidden_state_new, height_patches, width_patches = self.mlp(
@@ -777,13 +777,13 @@ class FanConvMlp(nn.Module):
         self.fc2 = nn.Conv2d(hidden_features, out_features, kernel_size=1, bias=True)
         self.drop = nn.Dropout(drop)
 
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.norm(x)
-        x = self.act(x)
-        x = self.drop(x)
-        x = self.fc2(x)
-        return x
+    def forward(self, hidden_states):
+        hidden_states = self.fc1(hidden_states)
+        hidden_states = self.norm(hidden_states)
+        hidden_states = self.act(hidden_states)
+        hidden_states = self.drop(hidden_states)
+        hidden_states = self.fc2(hidden_states)
+        return hidden_states
 
 
 class FanConvNeXtBlock(nn.Module):
@@ -805,84 +805,65 @@ class FanConvNeXtBlock(nn.Module):
 
     def __init__(
         self,
-        dim,
-        drop_path=0.0,
-        ls_init_value=1e-6,
-        conv_mlp=True,
-        mlp_ratio=4,
-        norm_layer=None,
+        config: FanConfig,
+        stage_index:int,
+        block_index:int,
     ):
         super().__init__()
-        if not norm_layer:
-            norm_layer = partial(FanLayerNorm2d, eps=1e-6) if conv_mlp else partial(nn.LayerNorm, eps=1e-6)
-        mlp_layer = FanConvMlp if conv_mlp else FanMlp
-        self.use_conv_mlp = conv_mlp
+        mlp_ratio = 4
+        dim = config.hybrid_in_channels[stage_index]
+        droppath_rate = [
+            x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths)).split(config.depths)
+        ][stage_index][block_index]
         self.conv_dw = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
-        self.norm = norm_layer(dim)
-        self.mlp = mlp_layer(dim, int(mlp_ratio * dim), act_layer=nn.GELU)
-        self.weight = nn.Parameter(ls_init_value * torch.ones(dim)) if ls_init_value > 0 else None
-        self.drop_path = FanDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.norm = FanLayerNorm2d(dim, eps=config.layer_norm_eps)
+        self.mlp = FanConvMlp(dim, int(mlp_ratio * dim), act_layer=nn.GELU)
+        self.weight = nn.Parameter(config.initializer_range * torch.ones(dim)) if config.initializer_range > 0 else None
+        self.drop_path = FanDropPath(droppath_rate) if droppath_rate > 0.0 else nn.Identity()
         # Added This initialization to pass initialization Test
         self.weight.data = nn.init.trunc_normal_(
-            self.weight.data, std=ls_init_value, a=-2 * ls_init_value, b=2 * ls_init_value
+            self.weight.data, std=config.initializer_range, a=-2 * config.initializer_range, b=2 * config.initializer_range
         )
 
-    def forward(self, x):
-        shortcut = x
-        x = self.conv_dw(x)
-        if self.use_conv_mlp:
-            x = self.norm(x)
-            x = self.mlp(x)
-        else:
-            x = x.permute(0, 2, 3, 1)
-            x = self.norm(x)
-            x = self.mlp(x)
-            x = x.permute(0, 3, 1, 2)
+    def forward(self, hidden_states):
+        shortcut = hidden_states
+        hidden_states = self.conv_dw(hidden_states)
+        hidden_states = self.norm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+
         if self.weight is not None:
-            x = x.mul(self.weight.reshape(1, -1, 1, 1))
-        x = self.drop_path(x) + shortcut
-        return x
+            hidden_states = hidden_states.mul(self.weight.reshape(1, -1, 1, 1))
+        hidden_states = self.drop_path(hidden_states) + shortcut
+        return hidden_states
 
 
 class FanConvNeXtStage(nn.Module):
     def __init__(self, config: FanConfig, index: int):
         super().__init__()
 
-        in_chs = config.hybrid_in_channels[0] if index == 0 else config.hybrid_in_channels[index - 1]
-        out_chs = config.hybrid_in_channels[index]
+        in_channels = config.hybrid_in_channels[0] if index == 0 else config.hybrid_in_channels[index - 1]
+        out_channels = config.hybrid_in_channels[index]
         stride = 2 if index > 0 else 1
         depth = config.depths[index]
-        dp_rates = [
-            x.tolist() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths)).split(config.depths)
-        ][index]
-        ls_init_value = config.initializer_range
-        norm_layer = partial(FanLayerNorm2d, eps=config.layer_norm_eps)
-        if in_chs != out_chs or stride > 1:
-            self.downsample = nn.Sequential(
-                norm_layer(in_chs),
-                nn.Conv2d(in_chs, out_chs, kernel_size=stride, stride=stride),
-            )
+        do_downsample = in_channels != out_channels or stride > 1
+        self.downsample = nn.ModuleList()
+        
+        if do_downsample:
+            self.downsample.append(FanLayerNorm2d(in_channels, eps=config.layer_norm_eps))
+            self.downsample.append(nn.Conv2d(in_channels, out_channels, kernel_size=stride, stride=stride))
         else:
-            self.downsample = nn.Identity()
+            self.downsample.append(nn.Identity())
+        self.blocks = nn.ModuleList()
+        for j in range(depth):
+            self.blocks.append(FanConvNeXtBlock(config, stage_index=index, block_index=j))
 
-        dp_rates = dp_rates or [0.0] * depth
-        self.blocks = nn.Sequential(
-            *[
-                FanConvNeXtBlock(
-                    dim=out_chs,
-                    drop_path=dp_rates[j],
-                    ls_init_value=ls_init_value,
-                    conv_mlp=True,
-                    norm_layer=norm_layer,
-                )
-                for j in range(depth)
-            ]
-        )
 
-    def forward(self, x):
-        x = self.downsample(x)
-        x = self.blocks(x)
-        return x
+    def forward(self, hidden_states: torch.Tensor)->torch.Tensor:
+        for layer in self.downsample:
+            hidden_states = layer(hidden_states)
+        for block in self.blocks:
+            hidden_states = block(hidden_states)
+        return hidden_states
 
 
 class FanConvNeXt(nn.Module):
@@ -914,14 +895,14 @@ class FanConvNeXt(nn.Module):
         for index in range(len(config.depths)):
             self.stages.append(FanConvNeXtStage(config, index))
 
-    def forward(self, x):
-        x = self.stem(x)
-        out_list = []
+    def forward(self, hidden_states: torch.Tensor):
+        hidden_states = self.stem(hidden_states)
+        intermediate_states = []
         for stage in self.stages:
-            x = stage(x)
-            out_list.append(x)
+            hidden_states = stage(hidden_states)
+            intermediate_states.append(hidden_states)
 
-        return x, out_list
+        return hidden_states, intermediate_states
 
 
 class FanPreTrainedModel(PreTrainedModel):
@@ -1027,9 +1008,9 @@ class FanEmbeddings(nn.Module):
         batch_size = pixel_values.shape[0]
         encoder_states = () if output_hidden_states else None
         if isinstance(self.patch_embeddings, FanHybridEmbed):
-            hidden_states, (height_patches, width_patches), out_list = self.patch_embeddings(pixel_values)
+            hidden_states, (height_patches, width_patches), intermediate_states = self.patch_embeddings(pixel_values)
             if output_hidden_states:
-                encoder_states = encoder_states + tuple(out_list)
+                encoder_states = encoder_states + tuple(intermediate_states)
         else:
             hidden_states, (height_patches, width_patches) = self.patch_embeddings(pixel_values)
 
