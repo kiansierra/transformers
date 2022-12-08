@@ -44,7 +44,7 @@ class FanConfig(PretrainedConfig):
 
 
     Args:
-        patch_size (int, defaults to 16):
+        patch_size (`int`, *optional*, defaults to 16):
             Size of each patch to generated the embedding tokens from the image
         hidden_size (`int`, *optional*, defaults to 448):
             Dimension of the encoder layers and the pooler layer.
@@ -54,41 +54,41 @@ class FanConfig(PretrainedConfig):
             Number of attention heads for each attention layer in the Transformer encoder.
         depths (`List[int]`, *optional*, defaults to None):
             The number of layers in each encoder block, only applicable when using hybrid backbone (ConvNeXt).
-        eta (`float` defatults to 1.0):
+        eta (`float`, *optional*, defaults to 1.0):
             Weight Initialization value for channel importance.
-        tokens_norm (`bool`, defaults to True):
+        tokens_norm (`bool`, *optional*, defaults to True):
             Whether or not to apply normalization in the Class Attention block.
-        se_mlp (`bool`, defaults to False):
+        se_mlp (`bool`, *optional*, defaults to False):
             Wheter or not to use Squeeze-Excite in the FanEncoder layers MLP.
         initializer_range (`float`, *optional*, defaults to 0.02):
             The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
-        img_size (`List[int]`, defaults to `[224,224]`):
+        img_size (`List[int]`, *optional*, defaults to `[224,224]`):
             The size of the images being passed to the model.
-        num_channels (`int`, defaults to 3):
+        num_channels (`int`, *optional*, defaults to 3):
             Number of channels the input image has.
         backbone (`string`, *optional*):
             Wheter or not to use 'hybrid' backbone.
-        use_pos_embed ( `bool`, defaults to `True`):
+        use_pos_embed (`bool`, *optional*, defaults to `True`):
             Wheter or not to use positional_encoding in the embeddings.
-        mlp_ratio (`float`, defaults to 4.0):
+        mlp_ratio (`float`, *optional*, defaults to 4.0):
             Ratio of the size of the hidden layer compared to the size of the input layer of the Mix FFNs in the
             encoder blocks.
-        qkv_bias (`bool`, defaults to `True`):
+        qkv_bias (`bool`, *optional*, defaults to `True`):
             Whether or not to use bias in Query, Key and Value in attention layers.
         hidden_dropout_prob (`float`, *optional*, defaults to 0.0):
             The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler.
         attention_probs_dropout_prob (`float`, *optional*, defaults to 0.0):
             The dropout ratio for the attention probabilities.
-        drop_path_rate (`float`, defaults to 0.0):
+        drop_path_rate (`float`, *optional*, defaults to 0.0):
             Dropout used in Toxen Mixing after MLP.
-        decoder_dropout (`float`, defaults to 0.1):
+        decoder_dropout (`float`, *optional*, defaults to 0.1):
             Dropout used in Decode Head for SemanticSegmentation tasks.
         hidden_act (`str` or `function`, *optional*, defaults to `"gelu"`):
             The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
             `"relu"`, `"selu"` and `"gelu_new"` are supported.
-        cls_attn_layers (`int`, defaults to 2):
+        cls_attn_layers (`int`, *optional*, defaults to 2):
             Number of ClassAttentionBlock used. Class Attention Layer as in CaiT https://arxiv.org/abs/2103.17239.
-        hybrid_patch_size (`int`, defaults to 2):
+        hybrid_patch_size (`int`, *optional*, defaults to 2):
             The patch size used in the hybrid embeddings, when using default backbone.
         channel_dims (`List[int]`, *optional*):
             List of Input channels for each of the encoder layers. If None it defaults to [config.hidden_size] *
