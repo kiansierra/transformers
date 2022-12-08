@@ -93,9 +93,6 @@ class FanConfig(PretrainedConfig):
         channel_dims (`List[int]`, *optional*):
             List of Input channels for each of the encoder layers. If None it defaults to [config.hidden_size] *
             config.num_hidden_layers.
-        feat_downsample (`bool`, defaults to `False`):
-            Whether or not to use a learnable downsample convolution to obtain hidden states for SemanticSegmentation
-            tasks. Only appliable with hybrid backbone.
         out_index (`int`, *optional*, defaults to -1):
             Additional Hidden state index position to add to the backbone hidden states and the last hidden state. Only
             applicable when using hybrid backbone.
@@ -154,7 +151,6 @@ class FanConfig(PretrainedConfig):
         cls_attn_layers=2,
         hybrid_patch_size=2,
         channel_dims=None,
-        feat_downsample=False,
         out_index=-1,
         rounding_mode="floor",
         hybrid_in_channels=[128, 256, 512, 1024],
@@ -189,7 +185,6 @@ class FanConfig(PretrainedConfig):
         self.hybrid_patch_size = hybrid_patch_size
         self.channel_dims = channel_dims
         self.out_index = out_index
-        self.feat_downsample = feat_downsample
         self.rounding_mode = rounding_mode
         self.hybrid_in_channels = hybrid_in_channels
         self.segmentation_in_channels = segmentation_in_channels

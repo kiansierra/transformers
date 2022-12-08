@@ -1073,17 +1073,6 @@ class FanEncoder(nn.Module):
         self.blocks = nn.ModuleList([FanEncoderLayer(config, i) for i in range(config.num_hidden_layers)])
         self.cls_token = nn.Parameter(torch.zeros(1, 1, channel_dims[-1]))
         self.cls_attn_blocks = nn.ModuleList([FanClassAttentionBlock(config) for _ in range(config.cls_attn_layers)])
-        if self.config.backbone == "hybrid" and self.config.feat_downsample:
-            self.learnable_downsample = nn.Conv2d(
-                in_channels=self.config.hidden_size,
-                out_channels=768,
-                kernel_size=3,
-                stride=2,
-                padding=1,
-                dilation=1,
-                groups=1,
-                bias=True,
-            )
 
     def forward(
         self,
@@ -1125,17 +1114,6 @@ class FanEncoder(nn.Module):
             current_hidden_state = blk(current_hidden_state)
 
         if output_hidden_states:
-            if is_backbone_hybrid and self.config.feat_downsample:
-                tmp = (
-                    current_hidden_state[:, 1:, :]
-                    .reshape(batch_size, height_patches, width_patches, -1)
-                    .permute(0, 3, 1, 2)
-                    .contiguous()
-                )
-                tmp = self.learnable_downsample(tmp)
-                tmp = tmp.reshape(batch_size, height_patches * width_patches, -1).permute(0, 2, 1).contiguous()
-                encoder_states + (tmp,)
-            else:
                 encoder_states = encoder_states + (current_hidden_state[:, 1:, :],)
 
         if not return_dict:
