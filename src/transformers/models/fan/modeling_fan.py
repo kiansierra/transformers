@@ -435,30 +435,30 @@ class FanClassAttn(nn.Module):
         head_dim = dim // self.num_attention_heads
         self.scale = head_dim**-0.5
 
-        self.q = nn.Linear(dim, dim, bias=config.qkv_bias)
-        self.k = nn.Linear(dim, dim, bias=config.qkv_bias)
-        self.v = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.query = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.key = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.value = nn.Linear(dim, dim, bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, hidden_states, return_attention=False):
+    def forward(self, hidden_states):
         batch_size, seq_len, num_channels = hidden_states.shape
         query_layer = (
-            self.q(hidden_states[:, 0])
+            self.query(hidden_states[:, 0])
             .unsqueeze(1)
             .reshape(batch_size, 1, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
         key_layer = (
-            self.k(hidden_states)
+            self.key(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
         query_layer = query_layer * self.scale
         value_layer = (
-            self.v(hidden_states)
+            self.value(hidden_states)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
@@ -471,8 +471,6 @@ class FanClassAttn(nn.Module):
         x_cls = self.proj(x_cls)
         x_cls = self.proj_drop(x_cls)
 
-        if return_attention:
-            return x_cls, attn
         return x_cls
 
 
@@ -529,8 +527,8 @@ class FanTokenMixing(nn.Module):
         self.num_attention_heads = num_attention_heads
         head_dim = dim // num_attention_heads
         self.scale = head_dim**-0.5
-        self.q = nn.Linear(dim, dim , bias=config.qkv_bias)
-        self.kv = nn.Linear(dim, dim * 2 , bias=config.qkv_bias)
+        self.query = nn.Linear(dim, dim , bias=config.qkv_bias)
+        self.key_value = nn.Linear(dim, dim * 2 , bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(config.hidden_dropout_prob)
@@ -538,13 +536,13 @@ class FanTokenMixing(nn.Module):
     def forward(self, x):
         batch_size, seq_len, num_channels = x.shape
         query_layer = (
-            self.q(x)
+            self.query(x)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
 
         key_value_layer = (
-            self.kv(x)
+            self.key_value(x)
             .reshape(batch_size, -1, 2, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(2, 0, 3, 1, 4)
         )
@@ -613,7 +611,7 @@ class FanChannelProcessing(nn.Module):
         self.drop_path = FanDropPath(config.drop_path_rate) if config.drop_path_rate > 0.0 else nn.Identity()
         self.mlp_v = FanMlp(config=config, index=index)
         self.norm_v = nn.LayerNorm(dim, eps=config.layer_norm_eps)
-        self.q = nn.Linear(dim, dim, bias=config.qkv_bias)
+        self.query = nn.Linear(dim, dim, bias=config.qkv_bias)
         self.attn_drop = nn.Dropout(config.attention_probs_dropout_prob)
 
     def forward(self, x, height, width):
@@ -623,7 +621,7 @@ class FanChannelProcessing(nn.Module):
         )
 
         query_layer = (
-            self.q(x)
+            self.query(x)
             .reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads)
             .permute(0, 2, 1, 3)
         )
