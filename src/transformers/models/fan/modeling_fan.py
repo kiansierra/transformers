@@ -583,8 +583,6 @@ class FanHybridEmbed(nn.Module):
     def forward(self, pixel_values: torch.Tensor):
         output, out_list = self.backbone(pixel_values)
         batch_size, num_channels, height, width = output.shape
-        if isinstance(output, (list, tuple)):
-            output = output[-1]  # last feature if backbone outputs list/tuple of features
         output = self.proj(output).flatten(2).transpose(1, 2)
         return output, (height // self.patch_size[0], width // self.patch_size[1]), out_list
 
@@ -637,12 +635,10 @@ class FanChannelProcessing(nn.Module):
         attn = attn * self.temperature
         attn = self.attn_drop(attn)
 
-        Bv, Hd, Nv, Cv = value_layer.shape
-        value_layer = (
-            self.norm_v(self.mlp_v(value_layer.transpose(1, 2).reshape(Bv, Nv, Hd * Cv), height, width))
-            .reshape(Bv, Nv, Hd, Cv)
-            .transpose(1, 2)
-        )
+        value_layer = value_layer.transpose(1, 2).reshape(batch_size, seq_len, num_channels)
+        value_layer = self.mlp_v(value_layer, height, width)
+        value_layer = self.norm_v(value_layer)
+        value_layer = value_layer.reshape(batch_size, seq_len, self.num_attention_heads, num_channels // self.num_attention_heads).transpose(1, 2)
 
         repeat_time = seq_len // attn.shape[-1]
         attn = attn.repeat_interleave(repeat_time, dim=-1) if attn.shape[-1] > 1 else attn
