@@ -31,7 +31,7 @@ fan_ckpts = {
     "fan_base_18_p16_224": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_base.pth.tar",
     "fan_tiny_8_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_tiny.pth.tar",
     "fan_small_12_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_small.pth.tar",
-    "fan_base_16_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_base_in22k_1k.pth.tar",
+    "fan_base_16_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_base.pth.tar",
     "fan_large_16_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_large_in22k_1k.pth.tar",
 }
 
