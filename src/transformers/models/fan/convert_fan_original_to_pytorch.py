@@ -15,78 +15,98 @@
 """Convert Fan checkpoints."""
 
 
-import functools
-import re
 import argparse
-import torch
-from transformers.utils import logging
-from transformers import AutoFeatureExtractor, FanConfig, FanForImageClassification, FanImageProcessor
-from huggingface_hub import hf_hub_download
+import functools
 import json
+import re
+
+import torch
+
+from huggingface_hub import hf_hub_download
+from transformers import FanConfig, FanForImageClassification, FanImageProcessor
 
 
 fan_ckpts = {
-    "fan_tiny_12_p16_224": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_tiny.pth.tar",
-    "fan_small_12_p16_224": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_small.pth.tar",
-    "fan_base_18_p16_224": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_base.pth.tar",
-    "fan_tiny_8_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_tiny.pth.tar",
+    "fan_tiny_12_p16_224": (
+        "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_tiny.pth.tar"
+    ),
+    "fan_small_12_p16_224": (
+        "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_small.pth.tar"
+    ),
+    "fan_base_18_p16_224": (
+        "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_base.pth.tar"
+    ),
+    "fan_tiny_8_p4_hybrid": (
+        "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_tiny.pth.tar"
+    ),
     "fan_small_12_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_small.pth.tar",
-    "fan_base_16_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_base.pth.tar",
+    "fan_base_16_p4_hybrid": (
+        "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_base.pth.tar"
+    ),
     "fan_large_16_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_large_in22k_1k.pth.tar",
 }
 # Configuration Values different from defaults
-config_dict = {'fan_tiny_12_p16_224': {'hidden_size': 192,
-  'num_hidden_layers': 12,
-  'num_attention_heads': 4},
- 'fan_small_12_p16_224_se_attn': {'hidden_size': 384,
-  'num_hidden_layers': 12,
-  'se_mlp': True},
- 'fan_small_12_p16_224': {'hidden_size': 384, 'num_hidden_layers': 12},
- 'fan_base_18_p16_224': {},
- 'fan_large_24_p16_224': {'hidden_size': 480,
-  'num_hidden_layers': 24,
-  'num_attention_heads': 10},
- 'fan_tiny_8_p4_hybrid': {'hidden_size': 192,
-  'num_hidden_layers': 8,
-  'segmentation_in_channels': [128, 256, 192, 192],
-  'out_index': 7},
- 'fan_small_12_p4_hybrid': {'hidden_size': 384,
-  'num_hidden_layers': 10,
-  'segmentation_in_channels': [128, 256, 384, 384],
-  'out_index': 9},
- 'fan_base_16_p4_hybrid': {'num_hidden_layers': 16,
-  'segmentation_in_channels': [128, 256, 448, 448],
-  'out_index': 15},
- 'fan_large_16_p4_hybrid': {'hidden_size': 480,
-  'num_hidden_layers': 22,
-  'num_attention_heads': 10,
-  'segmentation_in_channels': [128, 256, 480, 480],
-  'out_index': 18},
- 'fan_Xlarge_16_p4_hybrid': {'hidden_size': 528,
-  'num_hidden_layers': 23,
-  'num_attention_heads': [11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   11,
-   16,
-   16,
-   16]}}
+config_dict = {
+    "fan_tiny_12_p16_224": {"hidden_size": 192, "num_hidden_layers": 12, "num_attention_heads": 4},
+    "fan_small_12_p16_224_se_attn": {"hidden_size": 384, "num_hidden_layers": 12, "se_mlp": True},
+    "fan_small_12_p16_224": {"hidden_size": 384, "num_hidden_layers": 12},
+    "fan_base_18_p16_224": {},
+    "fan_large_24_p16_224": {"hidden_size": 480, "num_hidden_layers": 24, "num_attention_heads": 10},
+    "fan_tiny_8_p4_hybrid": {
+        "hidden_size": 192,
+        "num_hidden_layers": 8,
+        "segmentation_in_channels": [128, 256, 192, 192],
+        "out_index": 7,
+    },
+    "fan_small_12_p4_hybrid": {
+        "hidden_size": 384,
+        "num_hidden_layers": 10,
+        "segmentation_in_channels": [128, 256, 384, 384],
+        "out_index": 9,
+    },
+    "fan_base_16_p4_hybrid": {
+        "num_hidden_layers": 16,
+        "segmentation_in_channels": [128, 256, 448, 448],
+        "out_index": 15,
+    },
+    "fan_large_16_p4_hybrid": {
+        "hidden_size": 480,
+        "num_hidden_layers": 22,
+        "num_attention_heads": 10,
+        "segmentation_in_channels": [128, 256, 480, 480],
+        "out_index": 18,
+    },
+    "fan_Xlarge_16_p4_hybrid": {
+        "hidden_size": 528,
+        "num_hidden_layers": 23,
+        "num_attention_heads": [
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            11,
+            16,
+            16,
+            16,
+        ],
+    },
+}
+
 
 def get_fan_config(name):
     config = FanConfig(**config_dict[name])
@@ -218,9 +238,8 @@ def convert_fan_checkpoint(fan_name, pytorch_dump_folder_path):
         new_state_dict = remap_state(torch.hub.load_state_dict_from_url(fan_ckpts[fan_name]))
         model.load_state_dict(new_state_dict)
         print(f"model {fan_name} has a checkpoint at {fan_ckpts[fan_name]}")
-        
-    image_processor = FanImageProcessor()
 
+    image_processor = FanImageProcessor()
 
     print(f"Saving model {fan_name} to {pytorch_dump_folder_path}")
     model.save_pretrained(pytorch_dump_folder_path)
