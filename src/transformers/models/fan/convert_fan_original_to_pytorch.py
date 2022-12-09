@@ -17,12 +17,197 @@
 
 import functools
 import re
-
+import argparse
+import torch
 from transformers.utils import logging
+from transformers import AutoFeatureExtractor, FanConfig, FanForImageClassification, FanImageProcessor
+from huggingface_hub import hf_hub_download
+import json
 
 
-logging.set_verbosity_info()
-logger = logging.get_logger(__name__)
+fan_ckpts = {
+    "fan_tiny_12_p16_224": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_tiny.pth.tar",
+    "fan_small_12_p16_224": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_small.pth.tar",
+    "fan_base_18_p16_224": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_vit_base.pth.tar",
+    "fan_tiny_8_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_tiny.pth.tar",
+    "fan_small_12_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_small.pth.tar",
+    "fan_base_16_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_base_in22k_1k.pth.tar",
+    "fan_large_16_p4_hybrid": "https://github.com/zhoudaquan/fully_attentional_network_ckpt/releases/download/v1.0.0/fan_hybrid_large_in22k_1k.pth.tar",
+}
+
+config_dict = {'fan_tiny_12_p16_224': {'patch_size': 16,
+  'hidden_size': 192,
+  'num_hidden_layers': 12,
+  'num_attention_heads': 4,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False},
+ 'fan_small_12_p16_224_se_attn': {'patch_size': 16,
+  'hidden_size': 384,
+  'num_hidden_layers': 12,
+  'num_attention_heads': 8,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False,
+  'se_mlp': True},
+ 'fan_small_12_p16_224': {'patch_size': 16,
+  'hidden_size': 384,
+  'num_hidden_layers': 12,
+  'num_attention_heads': 8,
+  'eta': 1.0,
+  'tokens_norm': True},
+ 'fan_base_18_p16_224': {'patch_size': 16,
+  'hidden_size': 448,
+  'num_hidden_layers': 18,
+  'num_attention_heads': 8,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False},
+ 'fan_large_24_p16_224': {'patch_size': 16,
+  'hidden_size': 480,
+  'num_hidden_layers': 24,
+  'num_attention_heads': 10,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False},
+ 'fan_tiny_8_p4_hybrid': {'patch_size': 16,
+  'hidden_size': 192,
+  'num_hidden_layers': 8,
+  'num_attention_heads': 8,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False,
+  'depths': [3, 3],
+  'dims': [128, 256, 512, 1024],
+  'backbone': 'hybrid',
+  'segmentation_in_channels': [128, 256, 192, 192],
+  'in_index': [0, 1, 2, 3],
+  'feature_strides': [4, 8, 16, 32],
+  'channels': 256,
+  'decoder_dropout': 0.1,
+  'decoder_hidden_size': 768,
+  'out_index': 7},
+ 'fan_small_12_p4_hybrid': {'patch_size': 16,
+  'hidden_size': 384,
+  'num_hidden_layers': 10,
+  'num_attention_heads': 8,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False,
+  'channel_dims': [384, 384, 384, 384, 384, 384, 384, 384, 384, 384],
+  'depths': [3, 3],
+  'dims': [128, 256, 512, 1024],
+  'backbone': 'hybrid',
+  'segmentation_in_channels': [128, 256, 384, 384],
+  'in_index': [0, 1, 2, 3],
+  'feature_strides': [4, 8, 16, 32],
+  'channels': 256,
+  'decoder_dropout': 0.1,
+  'decoder_hidden_size': 768,
+  'out_index': 9},
+ 'fan_base_16_p4_hybrid': {'patch_size': 16,
+  'hidden_size': 448,
+  'num_hidden_layers': 16,
+  'num_attention_heads': 8,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False,
+  'depths': [3, 3],
+  'dims': [128, 256, 512, 1024],
+  'backbone': 'hybrid',
+  'segmentation_in_channels': [128, 256, 448, 448],
+  'in_index': [0, 1, 2, 3],
+  'feature_strides': [4, 8, 16, 32],
+  'channels': 256,
+  'decoder_dropout': 0.1,
+  'decoder_hidden_size': 768,
+  'out_index': 15},
+ 'fan_large_16_p4_hybrid': {'patch_size': 16,
+  'hidden_size': 480,
+  'num_hidden_layers': 22,
+  'num_attention_heads': 10,
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False,
+  'head_init_scale': 0.001,
+  'depths': [3, 5],
+  'dims': [128, 256, 512, 1024],
+  'backbone': 'hybrid',
+  'segmentation_in_channels': [128, 256, 480, 480],
+  'in_index': [0, 1, 2, 3],
+  'feature_strides': [4, 8, 16, 32],
+  'channels': 256,
+  'decoder_dropout': 0.1,
+  'decoder_hidden_size': 768,
+  'out_index': 18},
+ 'fan_Xlarge_16_p4_hybrid': {'patch_size': 16,
+  'hidden_size': 528,
+  'num_hidden_layers': 23,
+  'num_attention_heads': [11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   16,
+   16,
+   16],
+  'eta': 1.0,
+  'tokens_norm': True,
+  'sharpen_attn': False,
+  'channel_dims': [528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   528,
+   768,
+   768,
+   768],
+  'depths': [3, 7],
+  'dims': [128, 256, 512, 1024],
+  'backbone': 'hybrid'}}
+
+def get_fan_config(name):
+    config = FanConfig(**config_dict[name])
+    repo_id = "huggingface/label-files"
+    filename = "imagenet-1k-id2label.json"
+    id2label = json.load(open(hf_hub_download(repo_id, filename, repo_type="dataset"), "r"))
+    id2label = {int(k): v for k, v in id2label.items()}
+    config.id2label = id2label
+    config.label2id = {v: k for k, v in id2label.items()}
+    return config
+
+
+
 
 
 def replace_linear_keys(key):
@@ -134,3 +319,39 @@ remap_fn = compose(
 
 def remap_state(state_dict):
     return {remap_fn(key): weights for key, weights in state_dict.items()}
+
+
+def convert_fan_checkpoint(fan_name, pytorch_dump_folder_path):
+    config = get_fan_config(fan_name)
+    model = FanForImageClassification(config)
+    model.eval()
+    if fan_name in fan_ckpts:
+        new_state_dict = remap_state(torch.hub.load_state_dict_from_url(fan_ckpts[fan_name]))
+        model.load_state_dict(new_state_dict)
+        print(f"model {fan_name} has a checkpoint at {fan_ckpts[fan_name]}")
+        
+    image_processor = FanImageProcessor()
+
+
+    print(f"Saving model {fan_name} to {pytorch_dump_folder_path}")
+    model.save_pretrained(pytorch_dump_folder_path)
+
+    print(f"Saving feature extractor to {pytorch_dump_folder_path}")
+    image_processor.save_pretrained(pytorch_dump_folder_path)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    # Required parameters
+    parser.add_argument(
+        "--fan_name",
+        default="fan_tiny_12_p16_224",
+        type=str,
+        help="Name of the Fan model you'd like to convert.",
+    )
+    parser.add_argument(
+        "--pytorch_dump_folder_path", default=None, type=str, help="Path to the output PyTorch model directory."
+    )
+
+    args = parser.parse_args()
+    convert_fan_checkpoint(args.fan_name, args.pytorch_dump_folder_path)
