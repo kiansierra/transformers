@@ -28,15 +28,10 @@ from torch.nn import LayerNorm
 from ...activations import ACT2FN
 from ...modeling_outputs import BaseModelOutput
 from ...modeling_utils import PreTrainedModel
-from ...utils import (
-    ModelOutput,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    logging,
-    replace_return_docstrings,
-)
+from ...utils import (ModelOutput, add_start_docstrings,
+                      add_start_docstrings_to_model_forward, logging,
+                      replace_return_docstrings)
 from .configuration_prophetnet import ProphetNetConfig
-
 
 logger = logging.get_logger(__name__)
 
@@ -701,21 +696,34 @@ class ProphetNetAttention(nn.Module):
             # key/value_states (first "if" case)
             # if encoder bi-directional self-attention `past_key_value` is always `None`
             past_key_value = (key_states, value_states)
-
+            
+            
+        # BUG: Old Shape section
         # project states into the correct shape
-        proj_shape = (batch_size * self.num_attn_heads, -1, self.head_dim)
+        # proj_shape = (batch_size * self.num_attn_heads, -1, self.head_dim)
+        # query_states = self._shape(query_states, tgt_len, batch_size).view(*proj_shape)
+        # key_states = key_states.view(*proj_shape)
+        # value_states = value_states.view(*proj_shape)
+
+        # src_len = key_states.size(1)
+        # attn_weights = torch.bmm(query_states, key_states.transpose(1, 2))
+        
+        # TODO: New Shape section
+        # project states into the correct shape Fix batch shape issue
+        proj_shape = (batch_size,  self.num_attn_heads, -1, self.head_dim)
         query_states = self._shape(query_states, tgt_len, batch_size).view(*proj_shape)
         key_states = key_states.view(*proj_shape)
         value_states = value_states.view(*proj_shape)
 
-        src_len = key_states.size(1)
-        attn_weights = torch.bmm(query_states, key_states.transpose(1, 2))
+        src_len = key_states.size(2)
+        attn_weights = torch.einsum('bsij,bsjk->bsik', query_states, key_states.transpose(2, 3))
+        # BUG: Old Shape section
         assert attn_weights.size() == (
-            batch_size * self.num_attn_heads,
+            batch_size, self.num_attn_heads,
             tgt_len,
             src_len,
         ), (
-            f"`attn_weights` should be of size {batch_size * self.num_attn_heads, tgt_len, src_len}, but is of size"
+            f"`attn_weights` should be of size {batch_size,  self.num_attn_heads, tgt_len, src_len}, but is of size"
             f" {attn_weights.shape}"
         )
 
@@ -723,7 +731,8 @@ class ProphetNetAttention(nn.Module):
         if attention_mask is not None and attention_mask.dim() == 0:
             attention_mask = None
         assert attention_mask is None or attention_mask.size() == (
-            self.num_attn_heads * batch_size,
+            batch_size, 
+            self.num_attn_heads,
             1,
             src_len,
         ), (
@@ -765,13 +774,27 @@ class ProphetNetAttention(nn.Module):
             training=self.training,
         )
 
-        attn_output = torch.bmm(attn_probs, value_states)
+
+        # BUG: Old Shape section
+        # attn_output = torch.bmm(attn_probs, value_states)
+        # assert attn_output.size() == (
+        #     batch_size * self.num_attn_heads,
+        #     tgt_len,
+        #     self.head_dim,
+        # ), (
+        #     f"`attn_output` should be of shape {batch_size * self.num_attn_heads, tgt_len, self.head_dim}, but is of"
+        #     f" shape {attn_output.size()}"
+        # )
+        
+        # TODO: NEW Shape section
+        attn_output = torch.einsum('bsij,bsjk->bsik', attn_probs, value_states)
         assert attn_output.size() == (
-            batch_size * self.num_attn_heads,
+            batch_size,
+            self.num_attn_heads,
             tgt_len,
             self.head_dim,
         ), (
-            f"`attn_output` should be of shape {batch_size * self.num_attn_heads, tgt_len, self.head_dim}, but is of"
+            f"`attn_output` should be of shape {batch_size,  self.num_attn_heads, tgt_len, self.head_dim}, but is of"
             f" shape {attn_output.size()}"
         )
 
@@ -1330,11 +1353,22 @@ class ProphetNetEncoder(ProphetNetPreTrainedModel):
         elif input_ids is not None and inputs_embeds is None:
             inputs_embeds = self.word_embeddings(input_ids)
 
+        # BUG: Old Attention mask section
+        # prepare attention mask
+        # if attention_mask is not None:
+        #     extended_attention_mask = (
+        #         1.0 - attention_mask[:, None, :].repeat(self.config.num_encoder_attention_heads, 1, 1)
+        #     ) * torch.finfo(self.dtype).min
+        #     extended_attention_mask = extended_attention_mask.to(inputs_embeds.dtype)
+        # else:
+        #     extended_attention_mask = None
+            
+        # TODO: Old Attention mask section
         # prepare attention mask
         if attention_mask is not None:
-            extended_attention_mask = (
-                1.0 - attention_mask[:, None, :].repeat(self.config.num_encoder_attention_heads, 1, 1)
-            ) * torch.finfo(self.dtype).min
+            extended_attention_mask = (1.0 - attention_mask[:, None, None, :].repeat(1, self.config.num_encoder_attention_heads, 1, 1)
+                                       ) * torch.finfo(self.dtype).min
+            
             extended_attention_mask = extended_attention_mask.to(inputs_embeds.dtype)
         else:
             extended_attention_mask = None
