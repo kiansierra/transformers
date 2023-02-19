@@ -749,7 +749,7 @@ class ProphetNetAttention(nn.Module):
             # In order to do so, attn_weights have to be reshaped
             # twice and have to be reused in the following
             attn_weights_reshaped = attn_weights.view(batch_size, self.num_attn_heads, tgt_len, src_len)
-            attn_weights = attn_weights_reshaped.view(batch_size * self.num_attn_heads, tgt_len, src_len)
+            attn_weights = attn_weights_reshaped.view(batch_size, self.num_attn_heads, tgt_len, src_len)
         else:
             attn_weights_reshaped = None
 
@@ -763,7 +763,7 @@ class ProphetNetAttention(nn.Module):
             attn_weights = layer_head_mask.view(1, -1, 1, 1) * attn_weights.view(
                 batch_size, self.num_attn_heads, tgt_len, src_len
             )
-            attn_weights = attn_weights.view(batch_size * self.num_attn_heads, tgt_len, src_len)
+            attn_weights = attn_weights.view(batch_size, self.num_attn_heads, tgt_len, src_len)
 
             # apply head_mask also on attn_weights_reshaped which is used for n-gram attention inside the model
             attn_weights_reshaped = layer_head_mask.view(1, -1, 1, 1) * attn_weights_reshaped
@@ -1585,7 +1585,7 @@ class ProphetNetDecoder(ProphetNetPreTrainedModel):
         # prepare encoder attention mask
         if encoder_attention_mask is not None:
             extended_encoder_attention_mask = (
-                1.0 - encoder_attention_mask[:, None, :].repeat(self.config.num_decoder_attention_heads, 1, 1)
+                1.0 - encoder_attention_mask[:, None, None, :].repeat(1, self.config.num_decoder_attention_heads, 1, 1)
             ) * torch.finfo(self.dtype).min
             extended_encoder_attention_mask = extended_encoder_attention_mask.to(inputs_embeds.dtype)
         else:
